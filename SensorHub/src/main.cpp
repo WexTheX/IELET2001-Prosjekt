@@ -1,3 +1,4 @@
+///////////////////////////////////////////////////////////////////////////
 #include <Arduino.h>
 
 #include <Wire.h>
@@ -8,6 +9,23 @@
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 
 #include <SimpleRotary.h>
+
+#include "UbidotsEsp32Mqtt.h"
+
+///////////////////////////////////////////////////////////////////////////
+
+const char *UBIDOTS_TOKEN = "BBFF-0aMsYRBJ5JgWojU2IUuwTByFEYqDqi";  // Put here your Ubidots TOKEN
+const char *WIFI_SSID = "Projekt nett";      // Put here your Wi-Fi SSID
+const char *WIFI_PASS = "Gruppe_42";      // Put here your Wi-Fi password
+const char *DEVICE_LABEL = "SensorHUB";   // Put here your Device label to which data  will be published
+const char *VARIABLE_LABEL = "test"; // Put here your Variable label to which data  will be published
+
+const int PUBLISH_FREQUENCY = 5000; // Update rate in milliseconds
+
+unsigned long timer;
+uint8_t analogPin = 34; // Pin used to read data from GPIO34 ADC_CH6.
+
+Ubidots ubidots(UBIDOTS_TOKEN);
 
 // Pin A, Pin B, Button Pin
 SimpleRotary rotary(4,2,5);
@@ -21,6 +39,21 @@ int lasttemp = 0;
 int lastvent = 0;
 
 String screenMode = "Temp";
+
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
+
+void callback(char *topic, byte *payload, unsigned int length)
+{
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++)
+  {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
 
 void screenPrint(String text) {
   display.clearDisplay();
@@ -91,8 +124,20 @@ void led(){
   }
 }
 
+///////////////////////////////////////////////////////////////////////////
+
 void setup() {
-  Serial.begin(9600);
+  
+  // put your setup code here, to run once:
+  Serial.begin(115200);
+  // ubidots.setDebug(true);  // uncomment this to make debug messages available
+  ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
+  ubidots.setCallback(callback);
+  ubidots.setup();
+  ubidots.reconnect();
+
+  timer = millis();
+
   pinMode(18, OUTPUT);
   pinMode(19, OUTPUT);
 
@@ -112,6 +157,20 @@ void setup() {
 }
 
 void loop() {
+
+  // put your main code here, to run repeatedly:
+  if (!ubidots.connected())
+  {
+    ubidots.reconnect();
+  }
+  if (abs(millis() - timer) > PUBLISH_FREQUENCY) // triggers the routine every 5 seconds
+  {
+    float value = analogRead(analogPin);
+    ubidots.add(VARIABLE_LABEL, value); // Insert your variable Labels and the value to be sent
+    ubidots.publish(DEVICE_LABEL);
+    timer = millis();
+  }
+  ubidots.loop();
 
   screen();
 
@@ -153,5 +212,5 @@ void loop() {
     }
 	}
 
-
-}
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
