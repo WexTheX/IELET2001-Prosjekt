@@ -15,8 +15,8 @@
 ///////////////////////////////////////////////////////////////////////////
 
 const char *UBIDOTS_TOKEN = "BBFF-0aMsYRBJ5JgWojU2IUuwTByFEYqDqi";  // Put here your Ubidots TOKEN
-const char *WIFI_SSID = "Projekt nett";      // Put here your Wi-Fi SSID
-const char *WIFI_PASS = "Gruppe_42";      // Put here your Wi-Fi password
+const char *WIFI_SSID = "foldy";      // Put here your Wi-Fi SSID
+const char *WIFI_PASS = "aihr8372";      // Put here your Wi-Fi password
 const char *DEVICE_LABEL = "SensorHUB";   // Put here your Device label to which data  will be published
 const char *VARIABLE_LABEL = "test"; // Put here your Variable label to which data  will be published
 
@@ -129,7 +129,7 @@ void led(){
 void setup() {
   
   // put your setup code here, to run once:
-  Serial.begin(115200);
+  Serial.begin(9600);
   // ubidots.setDebug(true);  // uncomment this to make debug messages available
   ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
   ubidots.setCallback(callback);
@@ -165,8 +165,8 @@ void loop() {
   }
   if (abs(millis() - timer) > PUBLISH_FREQUENCY) // triggers the routine every 5 seconds
   {
-    float value = analogRead(analogPin);
-    ubidots.add(VARIABLE_LABEL, value); // Insert your variable Labels and the value to be sent
+    ubidots.add("Temp", temp); // Insert your variable Labels and the value to be sent
+    ubidots.add("Vent", vent);
     ubidots.publish(DEVICE_LABEL);
     timer = millis();
   }
@@ -211,6 +211,6 @@ void loop() {
       screenPrint("Temp: " + String(temp) + "C");
     }
 	}
-
+}
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
