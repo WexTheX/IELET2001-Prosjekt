@@ -12,6 +12,12 @@
 
 #include "UbidotsEsp32Mqtt.h"
 
+#include <SPI.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+
+#define SEALEVELPRESSURE_HPA (1013.25)
+
 ///////////////////////////////////////////////////////////////////////////
 
 const char *UBIDOTS_TOKEN = "BBFF-0aMsYRBJ5JgWojU2IUuwTByFEYqDqi";  // Put here your Ubidots TOKEN
@@ -23,12 +29,19 @@ const char *VARIABLE_LABEL = "test"; // Put here your Variable label to which da
 const int PUBLISH_FREQUENCY = 5000; // Update rate in milliseconds
 
 unsigned long timer;
-uint8_t analogPin = 34; // Pin used to read data from GPIO34 ADC_CH6.
 
 Ubidots ubidots(UBIDOTS_TOKEN);
 
+TaskHandle_t Ubi;
+
 // Pin A, Pin B, Button Pin
 SimpleRotary rotary(4,2,5);
+
+Adafruit_BME280 bme; // I2C
+//Adafruit_BME280 bme(BME_CS); // hardware SPI
+//Adafruit_BME280 bme(BME_CS, BME_MOSI, BME_MISO, BME_SCK); // software SPI
+
+unsigned long delayTime;
 
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
@@ -37,6 +50,7 @@ int temp = 0;
 int vent = 0;
 int lasttemp = 0;
 int lastvent = 0;
+float hubtemp = 0;
 
 String screenMode = "Temp";
 
@@ -55,14 +69,15 @@ void callback(char *topic, byte *payload, unsigned int length)
   Serial.println();
 }
 
-void screenPrint(String text) {
+void screenPrint(String text, String text2) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0, 10);
   display.println(text);
-  display.display(); 
-  Serial.println("printed to screen");
+  display.setCursor(0, 30);
+  display.println(text2);
+  display.display();
 }
 
 bool change(){
@@ -124,22 +139,65 @@ void led(){
   }
 }
 
-///////////////////////////////////////////////////////////////////////////
-
-void setup() {
-  
-  // put your setup code here, to run once:
-  Serial.begin(9600);
+void UbidotsTask(void *pvParameters)
+{
   // ubidots.setDebug(true);  // uncomment this to make debug messages available
   ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
   ubidots.setCallback(callback);
   ubidots.setup();
   ubidots.reconnect();
 
-  timer = millis();
+  for (;;)
+  {
+    if (!ubidots.connected()){
+      ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
+      ubidots.reconnect();
+    }
+    ubidots.add("Temp", temp); // Insert your variable Labels and the value to be sent
+    ubidots.add("Vent", vent);
+    ubidots.publish(DEVICE_LABEL);
+
+    ubidots.loop();
+
+    hubtemp = bme.readTemperature();
+    delay(PUBLISH_FREQUENCY);
+    
+  }
+}
+
+///////////////////////////////////////////////////////////////////////////
+
+void setup() {
+  
+  // put your setup code here, to run once:
+  Serial.begin(9600);
+
+  xTaskCreatePinnedToCore(
+                    UbidotsTask,   /* Task function. */
+                    "Ubi",     /* name of task. */
+                    4096,       /* Stack size of task */
+                    NULL,        /* parameter of the task */
+                    tskIDLE_PRIORITY,           /* priority of the task */
+                    &Ubi,      /* Task handle to keep track of created task */
+                    0);          /* pin task to core 0 */
+  
 
   pinMode(18, OUTPUT);
   pinMode(19, OUTPUT);
+
+  Wire.begin();
+
+  unsigned status;
+  status = bme.begin(0x76); // I2C address. I2C scanner found 0x76
+  if (!status) {
+        Serial.println("Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
+        Serial.print("SensorID was: 0x"); Serial.println(bme.sensorID(),16);
+        Serial.print("        ID of 0xFF probably means a bad address, a BMP 180 or BMP 085\n");
+        Serial.print("   ID of 0x56-0x58 represents a BMP 280,\n");
+        Serial.print("        ID of 0x60 represents a BME 280.\n");
+        Serial.print("        ID of 0x61 represents a BME 680.\n");
+        while (1) delay(10);
+    }
 
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3D for 128x64
     Serial.println(F("SSD1306 allocation failed"));
@@ -159,18 +217,6 @@ void setup() {
 void loop() {
 
   // put your main code here, to run repeatedly:
-  if (!ubidots.connected())
-  {
-    ubidots.reconnect();
-  }
-  if (abs(millis() - timer) > PUBLISH_FREQUENCY) // triggers the routine every 5 seconds
-  {
-    ubidots.add("Temp", temp); // Insert your variable Labels and the value to be sent
-    ubidots.add("Vent", vent);
-    ubidots.publish(DEVICE_LABEL);
-    timer = millis();
-  }
-  ubidots.loop();
 
   screen();
 
@@ -182,7 +228,6 @@ void loop() {
   i = rotary.rotate();
 
   if ( i == 1 ) {
-    Serial.println("CW");
     if (screenMode == "Temp"){
       temp++;
     } else if (screenMode == "Vent"){
@@ -191,7 +236,6 @@ void loop() {
   }
 
   if ( i == 2 ) {
-    Serial.println("CCW");
     if (screenMode == "Temp"){
       temp--;
     } else if (screenMode == "Vent"){
@@ -202,7 +246,6 @@ void loop() {
   byte j = rotary.push();
 	
 	if ( j == 1 ){
-		Serial.println("Pushed");
     if (screenMode == "Temp"){
       screenMode = "Vent";
       screenPrint("Vent: " + String(vent) + "%");
@@ -211,6 +254,8 @@ void loop() {
       screenPrint("Temp: " + String(temp) + "C");
     }
 	}
+  
+  
 }
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
