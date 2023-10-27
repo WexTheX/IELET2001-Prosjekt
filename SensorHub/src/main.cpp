@@ -28,11 +28,11 @@ const char *VARIABLE_LABEL = "test"; // Put here your Variable label to which da
 
 const int PUBLISH_FREQUENCY = 5000; // Update rate in milliseconds
 
-unsigned long timer;
+unsigned long timer = 0;
 
 Ubidots ubidots(UBIDOTS_TOKEN);
 
-TaskHandle_t Ubi;
+TaskHandle_t Loop2;
 
 // Pin A, Pin B, Button Pin
 SimpleRotary rotary(4,2,5);
@@ -69,14 +69,14 @@ void callback(char *topic, byte *payload, unsigned int length)
   Serial.println();
 }
 
-void screenPrint(String text, String text2) {
+void screenPrint(String text) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0, 10);
   display.println(text);
   display.setCursor(0, 30);
-  display.println(text2);
+  display.println(hubtemp);
   display.display();
 }
 
@@ -139,7 +139,7 @@ void led(){
   }
 }
 
-void UbidotsTask(void *pvParameters)
+void loop2(void *pvParameters)
 {
   // ubidots.setDebug(true);  // uncomment this to make debug messages available
   ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
@@ -149,17 +149,25 @@ void UbidotsTask(void *pvParameters)
 
   for (;;)
   {
+
+    hubtemp = bme.readTemperature();
+
     if (!ubidots.connected()){
       ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
       ubidots.reconnect();
     }
+
+    if (millis() - timer > PUBLISH_FREQUENCY) // triggers the routine every 5 seconds
+    {
     ubidots.add("Temp", temp); // Insert your variable Labels and the value to be sent
     ubidots.add("Vent", vent);
     ubidots.publish(DEVICE_LABEL);
 
-    ubidots.loop();
+    timer = millis();
+    }
 
-    hubtemp = bme.readTemperature();
+    ubidots.loop();
+    
     delay(PUBLISH_FREQUENCY);
     
   }
@@ -172,13 +180,15 @@ void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
 
+  timer = millis();
+
   xTaskCreatePinnedToCore(
-                    UbidotsTask,   /* Task function. */
-                    "Ubi",     /* name of task. */
+                    loop2,   /* Task function. */
+                    "Loop 2",     /* name of task. */
                     4096,       /* Stack size of task */
                     NULL,        /* parameter of the task */
                     tskIDLE_PRIORITY,           /* priority of the task */
-                    &Ubi,      /* Task handle to keep track of created task */
+                    &Loop2,      /* Task handle to keep track of created task */
                     0);          /* pin task to core 0 */
   
 
