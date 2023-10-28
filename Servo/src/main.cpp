@@ -11,8 +11,8 @@ Servo servo;
 #define BOARD_ID 1
 #define MAX_CHANNEL 13  // 11 for North America // 13 in Europe
 
-#define MIN_ANGLE 0
-#define MAX_ANGLE 90
+#define MIN_ANGLE 0.0
+#define MAX_ANGLE 90.0
 
 uint8_t serverAddress[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 
@@ -78,29 +78,24 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
   Serial.print("Packet received from: ");
   printMAC(mac_addr);
   Serial.println();
-  Serial.print("data size = ");
-  Serial.println(sizeof(incomingData));
+  Serial.printf("data size = %d\n", sizeof(incomingData));
   uint8_t type = incomingData[0];
+  unsigned long angle = 0;
   switch (type) {
   case DATA :      // we received data from server
     memcpy(&inData, incomingData, sizeof(inData));
-    float angle = map(inData.percentage, 0, 100, MIN_ANGLE, MAX_ANGLE); // converts percentage received to servo angle
-    Serial.print("Servo angle = ");
-    Serial.println(angle);
+    angle = map(inData.percentage, 0.0, 100.0, MIN_ANGLE, MAX_ANGLE); // converts percentage received to servo angle
+    Serial.printf("Servo angle = %lu\n", angle);
     servo.write(angle);
     break;
 
-  case PAIRING:    // we received pairing data from server
+  case PAIRING :    // we received pairing data from server
     memcpy(&pairingData, incomingData, sizeof(pairingData));
     if (pairingData.id == 0) {              // the message comes from server
       printMAC(mac_addr);
       Serial.print("Pairing done for ");
       printMAC(pairingData.macAddr);
-      Serial.print(" on channel " );
-      Serial.print(pairingData.channel);    // channel used by the server
-      Serial.print(" in ");
-      Serial.print(millis()-start);
-      Serial.println("ms");
+      Serial.printf(" on channel %d in %lu ms\n", pairingData.channel, millis()-start);
       addPeer(pairingData.macAddr, pairingData.channel); // add the server  to the peer list 
       #ifdef SAVE_CHANNEL
         lastChannel = pairingData.channel;
@@ -116,7 +111,7 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
 PairingStatus autoPairing(){
   switch(pairingStatus) {
     case PAIR_REQUEST:
-    Serial.print("Pairing request on channel "  );
+    Serial.printf("Pairing request on channel %d\n", channel);
     Serial.println(channel);
 
     // set WiFi channel   
