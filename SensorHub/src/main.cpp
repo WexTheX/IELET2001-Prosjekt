@@ -52,7 +52,13 @@ int lasttemp = 0;
 int lastvent = 0;
 float hubtemp = 0;
 
-String screenMode = "Temp";
+enum screenModes{
+  Temp,
+  Vent
+  }; screenModes screenMode = Temp;
+
+String screenLine1 = "Temp: " + String(temp) + "C";
+String screenLine2 = "Roomtemp: " + String(hubtemp) + "C";
 
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
@@ -69,49 +75,63 @@ void callback(char *topic, byte *payload, unsigned int length)
   Serial.println();
 }
 
-void screenPrint(String text, String text2) {
+void screenPrint(String text, String text2) { //Increase the text size
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0, 10);
+  if (text == ""){
+    text = screenLine1;
+  }
   display.println(text);
   display.setCursor(0, 30);
+  if (text2 == ""){
+    text2 = screenLine2;
+  }
   display.println(text2);
   display.display();
+  screenLine1 = text;
+  screenLine2 = text2;
 }
 
-bool change(){
-  if (screenMode == "Temp" && temp == lasttemp){
+bool valueChanged(){
+  if (screenMode == Temp && temp == lasttemp){
     return false;
-  } else if (screenMode == "Vent" && vent == lastvent){
+  } else if (screenMode == Vent && vent == lastvent){
     return false;
   } else {
     return true;
   }
 }
 
+void changeMode(){
+  if (screenMode == Temp){
+    screenMode = Vent;
+    screenPrint("Vent: " + String(vent) + "%", "");
+  } else if (screenMode == Vent){
+    screenMode = Temp;
+    screenPrint("Temp: " + String(temp) + "C", "");
+  }
+}
+
 void screen(){
 
-  temp = constrain(temp, 0, 100);
-  vent = constrain(vent, 0, 100);
+  if (valueChanged()){
+    lasttemp = temp;
+    lastvent = vent;
 
-  if (!change()){
-    return;
+    if (screenMode == Temp){
+      screenPrint("Temp: " + String(temp) + "C", "");
+    } else if (screenMode == Vent){
+      screenPrint("Vent: " + String(vent) + "%", "");
+    }
   }
-
-  lasttemp = temp;
-  lastvent = vent;
-
-  if (screenMode == "Temp"){
-    screenPrint("Temp: " + String(temp) + "C");
-  } else if (screenMode == "Vent"){
-    screenPrint("Vent: " + String(vent) + "%");
-  }
+  
 }
 
 void led(){
   
-  if (screenMode == "Vent"){
+  if (screenMode == Vent){
     int l = map(vent, 0, 100, 0, 2);
     if (l == 0){
       digitalWrite(18, LOW);
@@ -124,7 +144,7 @@ void led(){
       digitalWrite(19, LOW);
     }
   }
-  if (screenMode == "Temp"){
+  if (screenMode == Temp){
     int l = map(temp, 0, 100, 0, 2);
     if (l == 0){
       digitalWrite(18, HIGH);
@@ -139,6 +159,45 @@ void led(){
   }
 }
 
+float readTemp(){
+  hubtemp = bme.readTemperature();
+  screenPrint("", "Roomtemp: " + String(hubtemp) + "C");
+  return hubtemp;
+}
+
+void knob(){
+
+  byte rotation = rotary.rotate(); // 0 = not turning, 1 = CW, 2 = CCW
+  byte push = rotary.push(); // 0 = not pushed, 1 = pushed
+
+  if (screenMode == Temp){
+    if (rotation == 1){
+      temp++;
+    } else if (rotation == 2){
+      temp--;
+    }
+    if (push == 1){
+      changeMode();
+    }
+  } 
+  
+  
+  else if (screenMode == Vent){
+    if (rotation == 1){
+      vent++;
+    } else if (rotation == 2){
+      vent--;
+    }
+    if (push == 1){
+      changeMode();
+    }
+  }
+
+  temp = constrain(temp, 0, 100);
+  vent = constrain(vent, 0, 100);
+
+}
+
 void UbidotsTask(void *pvParameters)
 {
   // ubidots.setDebug(true);  // uncomment this to make debug messages available
@@ -150,20 +209,27 @@ void UbidotsTask(void *pvParameters)
   for (;;)
   {
     if (!ubidots.connected()){
+      screenPrint("", "Wifi disconnected");
       ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
       ubidots.reconnect();
     }
     ubidots.add("Temp", temp); // Insert your variable Labels and the value to be sent
     ubidots.add("Vent", vent);
+    ubidots.add("Roomtemp", hubtemp);
     ubidots.publish(DEVICE_LABEL);
 
     ubidots.loop();
 
-    hubtemp = bme.readTemperature();
+    readTemp();
+
     delay(PUBLISH_FREQUENCY);
-    
+    //Try removing the publush frequency delay and see if it works / add the publish_frequency delay to the ubidots loop
   }
 }
+
+
+
+
 
 ///////////////////////////////////////////////////////////////////////////
 
@@ -218,43 +284,12 @@ void loop() {
 
   // put your main code here, to run repeatedly:
 
-  screen();
+  knob();
 
   led();
 
-  byte i;
+  screen();
 
-  // 0 = not turning, 1 = CW, 2 = CCW
-  i = rotary.rotate();
-
-  if ( i == 1 ) {
-    if (screenMode == "Temp"){
-      temp++;
-    } else if (screenMode == "Vent"){
-      vent++;
-    }
-  }
-
-  if ( i == 2 ) {
-    if (screenMode == "Temp"){
-      temp--;
-    } else if (screenMode == "Vent"){
-      vent--;
-    }
-  }
-
-  byte j = rotary.push();
-	
-	if ( j == 1 ){
-    if (screenMode == "Temp"){
-      screenMode = "Vent";
-      screenPrint("Vent: " + String(vent) + "%");
-    } else if (screenMode == "Vent"){
-      screenMode = "Temp";
-      screenPrint("Temp: " + String(temp) + "C");
-    }
-	}
-  
   
 }
 ///////////////////////////////////////////////////////////////////////////
