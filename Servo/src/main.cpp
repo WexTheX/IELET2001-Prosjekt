@@ -70,6 +70,11 @@ void printMAC(const uint8_t * mac_addr){
   Serial.print(macStr);
 }
 
+float mapf(float x, float in_min, float in_max, float out_min, float out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   Serial.print("\r\nLast Packet Send Status:\t");
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
@@ -81,15 +86,15 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
   Serial.println();
   Serial.printf("data size = %d\n", sizeof(incomingData));
   uint8_t type = incomingData[0];
-  unsigned long angle = 0;
+  float angle = 0.0;
   switch (type) {
   case DATA :      // we received data from server
     memcpy(&inData, incomingData, sizeof(inData));
-    angle = map(inData.percentage, 0.0, 100.0, MIN_ANGLE, MAX_ANGLE); // converts percentage received to servo angle
-    Serial.printf("Servo angle = %lu\n", angle);
+    angle = mapf(inData.percentage, 0.0, 100.0, MIN_ANGLE, MAX_ANGLE); // converts percentage received to servo angle
+    angle = constrain(angle, MIN_ANGLE, MAX_ANGLE); // constrain angle to servo limits
+    Serial.printf("Servo angle = %.2f\n", angle);
     servo.write(angle);
     break;
-
   case PAIRING :    // we received pairing data from server
     memcpy(&pairingData, incomingData, sizeof(pairingData));
     if (pairingData.id == 0) {              // the message comes from server
