@@ -16,8 +16,9 @@ Servo servo;
 
 uint8_t serverAddress[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 
-typedef struct struct_message {
+typedef struct struct_message_actuator {
   uint8_t msgType;
+  uint8_t id;
   float percentage;
 } struct_message;
 
@@ -185,5 +186,8 @@ void loop() {
   if (!servo.attached()) {
     servo.setPeriodHertz(50);
     servo.attach(14, 500, 2400);
+  }
+  if (autoPairing() == PAIR_PAIRED) {
+    
   }
 }
