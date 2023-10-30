@@ -1,31 +1,7 @@
 #include <Arduino.h>
 
-#define BUTTON_PIN_BITMASK 0x200000000
-
-// Ubidots
-#include "UbidotsEsp32Mqtt.h"
-
-const char *UBIDOTS_TOKEN   = "";         // Put here your Ubidots TOKEN
-const char *WIFI_SSID       = "";         // Put here your Wi-Fi SSID
-const char *WIFI_PASS       = "";         // Put here your Wi-Fi password
-const char *DEVICE_LABEL    = "DoorNode"; // Put here your Device label to which data  will be published
-const char *VARIABLE_LABEL  = "Motion";   // Put here your Variable label to which data  will be published
-
-const int PUBLISH_FREQUENCY = 5000; // Update rate in milliseconds
-
-Ubidots ubidots(UBIDOTS_TOKEN);
-
-void callback(char *topic, byte *payload, unsigned int length)
-{
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
-  for (int i = 0; i < length; i++)
-  {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
-}
+// Self made librarys:
+#include <connection.cc>
 
 // Pins:
 const int PIR_PIN = 32; // Motion sensor
@@ -45,7 +21,6 @@ bool prev_HES_state = false;
 
 // Motion
 bool motion_state = false;
-bool prev_motion_state = false;
 
 // Function Declarations
 void startUp();
@@ -69,19 +44,13 @@ void startUp(){ // Delare startup values
   Serial.begin(9600);
   pinMode(PIR_PIN, INPUT);
   pinMode(HES_PIN, INPUT_PULLUP);
-
-  // Ubidots startup
-  // ubidots.setDebug(true);  // uncomment this to make debug messages available
-  ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
-  ubidots.setCallback(callback);
-  ubidots.setup();
-  ubidots.reconnect();
 }
 
 void updateSensors(){ // Update sensors (only HES, as HES activates PIR);
   if (!ubidots.connected()){
     ubidots.reconnect();
   }
+
   if(millis()-updateMillis >= 500){
     updateMillis = millis();
     updateHES();
@@ -123,13 +92,13 @@ void updateHES(){ //Internal ESP32 hall effect reading (OLD)
 
 // Motion
 void updatePIR(){
-  prev_motion_state = motion_state;
-
   int PIR_state = digitalRead(PIR_PIN);
   Serial.print("Motion sensor: "); Serial.println(PIR_state);
 
-if(PIR_state == 1){ // Motion detected
-    motion_state = true;
+  if(millis() - magnetMillis >= 1000){ // Wait one second for door to settle.
+    if(PIR_state == 1){ // If motion detected
+      motion_state = true;
+    }
   }
 
   if(millis() - magnetMillis >= timerDelay){
@@ -140,10 +109,8 @@ if(PIR_state == 1){ // Motion detected
       Serial.println("Motion was not detected");
       person_state = false;
     }
-
-    // TODO: Send data, person_state
-    ubidots.add(VARIABLE_LABEL, motion_state);
-    ubidots.publish(DEVICE_LABEL);
+    
+    sendVariable(motion_state);
 
     door_state = SHUT;
   }
