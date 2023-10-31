@@ -24,9 +24,9 @@ const char *UBIDOTS_TOKEN = "BBFF-0aMsYRBJ5JgWojU2IUuwTByFEYqDqi";  // Put here 
 const char *WIFI_SSID = "foldy";      // Put here your Wi-Fi SSID
 const char *WIFI_PASS = "aihr8372";      // Put here your Wi-Fi password
 const char *DEVICE_LABEL = "SensorHUB";   // Put here your Device label to which data  will be published
-const char *VARIABLE_LABEL = "test"; // Put here your Variable label to which data  will be published
+const char *VARIABLE_LABEL = "temp"; // Put here your Variable label to which data  will be published
 
-const int PUBLISH_FREQUENCY = 5000; // Update rate in milliseconds
+const int PUBLISH_FREQUENCY = 10000; // Update rate in milliseconds
 
 unsigned long timer = 0;
 
@@ -46,11 +46,9 @@ unsigned long delayTime;
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-int temp = 0;
-int vent = 0;
-int lasttemp = 0;
-int lastvent = 0;
-float hubtemp = 0;
+int temp = 20;
+int vent = 50;
+float roomtemp = 0;
 
 unsigned long screenPrinted = 0;
 
@@ -61,21 +59,24 @@ enum screenModes{
   }; screenModes screenMode = Temp;
 
 String screenLine1 = "Temp: " + String(temp) + "C";
-String screenLine2 = "Roomtemp: " + String(hubtemp) + "C";
+String screenLine2 = "Roomtemp: " + String(roomtemp) + "C";
 
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
 
 void callback(char *topic, byte *payload, unsigned int length)
 {
-  Serial.print("Message arrived [");
+  String message = "";
+  Serial.print("UBI: [");
   Serial.print(topic);
   Serial.print("] ");
   for (int i = 0; i < length; i++)
   {
-    Serial.print((char)payload[i]);
+    message = message + (char)payload[i];
   }
-  Serial.println();
+  Serial.println(message);
+  temp = message.toInt();
+
 }
 
 void screenPrint(String text, String text2) { //Increase the text size
@@ -134,7 +135,7 @@ void led(){
     }
   }
   if (screenMode == Temp){
-    int l = map(temp, 0, 100, 0, 2);
+    int l = map(temp, 5, 40, 0, 2);
     if (l == 0){
       digitalWrite(18, HIGH);
       digitalWrite(19, LOW);
@@ -149,9 +150,9 @@ void led(){
 }
 
 float readTemp(){
-  hubtemp = bme.readTemperature();
-  screenLine2 = "Roomtemp: " + String(hubtemp) + "C";
-  return hubtemp;
+  roomtemp = bme.readTemperature();
+  screenLine2 = "Roomtemp: " + String(roomtemp) + "C";
+  return roomtemp;
 }
 
 void knob(){
@@ -182,7 +183,7 @@ void knob(){
     }
   }
 
-  temp = constrain(temp, 0, 100);
+  temp = constrain(temp, 5, 40);
   vent = constrain(vent, 0, 100);
 
   screen();
@@ -196,6 +197,8 @@ void loop2(void *pvParameters)
   ubidots.setCallback(callback);
   ubidots.setup();
   ubidots.reconnect();
+  ubidots.subscribeLastValue(DEVICE_LABEL, VARIABLE_LABEL);
+
 
   for (;;)
   {
@@ -204,16 +207,19 @@ void loop2(void *pvParameters)
       screenLine2 = "Reconnecting to wifi";
       ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
       ubidots.reconnect();
+      ubidots.subscribeLastValue(DEVICE_LABEL, VARIABLE_LABEL);
     }
-
+    if (millis() - timer > PUBLISH_FREQUENCY){
     ubidots.add("Temp", temp); // Insert your variable Labels and the value to be sent
     ubidots.add("Vent", vent);
-    ubidots.add("Roomtemp", hubtemp);
+    ubidots.add("Roomtemp", roomtemp);
     ubidots.publish(DEVICE_LABEL);
 
+    timer = millis();
+    }
     ubidots.loop();
 
-    delay(PUBLISH_FREQUENCY);
+    //delay(PUBLISH_FREQUENCY);
     //Try removing the publush frequency delay and see if it works / add the publish_frequency delay to the ubidots loop
   }
 }
