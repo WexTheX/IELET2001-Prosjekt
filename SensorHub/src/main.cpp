@@ -5,8 +5,8 @@
 #include <ArduinoJson.h>
 
 // Replace with your network credentials (STATION)
-const char* ssid = "Midjoskyen";
-const char* password = "ArneErBest";
+/*const char* ssid = "Midjoskyen";
+const char* password = "ArneErBest";*/
 
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -31,7 +31,8 @@ const char *UBIDOTS_TOKEN = "BBFF-0aMsYRBJ5JgWojU2IUuwTByFEYqDqi";  // Put here 
 const char *WIFI_SSID = "foldy";      // Put here your Wi-Fi SSID
 const char *WIFI_PASS = "aihr8372";      // Put here your Wi-Fi password
 const char *DEVICE_LABEL = "SensorHUB";   // Put here your Device label to which data  will be published
-const char *VARIABLE_LABEL = "temp"; // Put here your Variable label to which data  will be published
+const char *TEMP_LABEL = "temp"; // Put here your Variable label to which data  will be published
+const char *VENT_LABEL = "vent"; // Put here your Variable label to which data  will be published
 
 const int PUBLISH_FREQUENCY = 10000; // Update rate in milliseconds
 
@@ -56,6 +57,11 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 int temp = 20;
 int vent = 50;
 float roomtemp = 0;
+float servoTemp = 0;
+float servoHum = 0;
+float outsideTemp = 0;
+float outsideHum = 0;
+int lastVent = 0;
 
 unsigned long screenPrinted = 0;
 
@@ -165,6 +171,13 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
     serializeJson(root, Serial);
     // REPLACE WITH MQTT/UBIDOTS:
     //events.send(payload.c_str(), "new_readings", millis());
+    if (incomingReadings.id = 1) {
+      servoTemp = incomingReadings.temp;
+      servoHum = incomingReadings.hum;
+    } else if (incomingReadings.id = 2){
+      outsideTemp = incomingReadings.temp;
+      outsideHum = incomingReadings.hum;
+    }
     Serial.println();
     break;
   
@@ -212,7 +225,7 @@ void setupWifi() {
   // Set the device as a Station and Soft Access Point simultaneously
   WiFi.mode(WIFI_AP_STA);
   // Set device as a Wi-Fi Station
-  WiFi.begin(ssid, password);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
     Serial.println("Setting as a Wi-Fi Station..");
@@ -244,7 +257,11 @@ void callback(char *topic, byte *payload, unsigned int length)
     message = message + (char)payload[i];
   }
   Serial.println(message);
+  if (strcmp(topic, "/v2.0/devices/sensorhub/temp/lv") == 0){
   temp = message.toInt();
+  } else if (strcmp(topic, "/v2.0/devices/sensorhub/vent/lv") == 0){
+  vent = message.toInt();
+  }
 
 }
 
@@ -362,11 +379,26 @@ void loop2(void *pvParameters)
 {
   // ubidots.setDebug(true);  // uncomment this to make debug messages available
   screenLine2 = "Connecting to wifi";
-  ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
+  ubidots.connect();
+  chan = WiFi.channel();
+  ubidots.connect();
   ubidots.setCallback(callback);
   ubidots.setup();
   ubidots.reconnect();
-  ubidots.subscribeLastValue(DEVICE_LABEL, VARIABLE_LABEL);
+  ubidots.subscribeLastValue(DEVICE_LABEL, TEMP_LABEL);
+  ubidots.subscribeLastValue(DEVICE_LABEL, VENT_LABEL);
+
+  struct ubidotsData
+  {
+    float temp = temp;
+    float vent = vent;
+    float roomtemp = roomtemp;
+    float servoTemp = servoTemp;
+    float servoHum = servoHum;
+    float outsideTemp = outsideTemp;
+    float outsideHum = outsideHum;
+  }; ubidotsData lastData;
+  
 
 
   for (;;)
@@ -374,17 +406,46 @@ void loop2(void *pvParameters)
 
     if (!ubidots.connected()){
       screenLine2 = "Reconnecting to wifi";
-      ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
+      ubidots.connect();
       ubidots.reconnect();
-      ubidots.subscribeLastValue(DEVICE_LABEL, VARIABLE_LABEL);
+      ubidots.subscribeLastValue(DEVICE_LABEL, TEMP_LABEL);
+      ubidots.subscribeLastValue(DEVICE_LABEL, VENT_LABEL);
     }
-    if (millis() - timer > PUBLISH_FREQUENCY){
-    ubidots.add("Temp", temp); // Insert your variable Labels and the value to be sent
-    ubidots.add("Vent", vent);
-    ubidots.add("Roomtemp", roomtemp);
-    ubidots.publish(DEVICE_LABEL);
 
-    timer = millis();
+
+    if (millis() - timer > PUBLISH_FREQUENCY){
+      if (lastData.temp != temp){
+        ubidots.add("Temp", temp);
+        lastData.temp = temp;
+      }
+      if (lastData.vent != vent){
+        ubidots.add("Vent", vent);
+        lastData.vent = vent;
+      }
+      if (lastData.roomtemp != roomtemp){
+        ubidots.add("Roomtemp", roomtemp);
+        lastData.roomtemp = roomtemp;
+      }
+      if (lastData.servoTemp != servoTemp){
+        ubidots.add("VentTemp", servoTemp);
+        lastData.servoTemp = servoTemp;
+      }
+      if (lastData.servoHum != servoHum){
+        ubidots.add("VentHum", servoHum);
+        lastData.servoHum = servoHum;
+      }
+      if (lastData.outsideTemp != outsideTemp){
+        ubidots.add("OutsideTemp", outsideTemp);
+        lastData.outsideTemp = outsideTemp;
+      }
+      if (lastData.outsideHum != outsideHum){
+        ubidots.add("OutsideHum", outsideHum);
+        lastData.outsideHum = outsideHum;
+      }
+
+      ubidots.publish(DEVICE_LABEL);
+
+      timer = millis();
     }
     ubidots.loop();
 
@@ -400,11 +461,13 @@ void loop2(void *pvParameters)
 ///////////////////////////////////////////////////////////////////////////
 
 void setup() {
+  Serial.begin(115200);
+
+  WiFi.mode(WIFI_AP_STA);
   setupWifi();
   initESP_NOW();
   
-  // put your setup code here, to run once:
-  Serial.begin(9600);
+  // put your setup code here, to run once
 
   timer = millis();
 
@@ -472,6 +535,14 @@ void loop() {
   if (millis() - screenPrinted > 5000){
     readTemp();
     screenPrinted = millis();
+  }
+
+  if (lastVent != vent){
+    outgoingSetpoints.msgType = DATA;
+    outgoingSetpoints.id = 0;
+    outgoingSetpoints.percentage = vent;
+    esp_err_t result = esp_now_send(NULL, (uint8_t *) &outgoingSetpoints, sizeof(outgoingSetpoints)); // NULL means send to all peers
+    lastVent = vent;
   }
   
 
