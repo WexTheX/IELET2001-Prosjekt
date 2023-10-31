@@ -1,7 +1,24 @@
 #include <Arduino.h>
 
-// Self made librarys:
-#include <connection.cc>
+// Ubidots
+#include "UbidotsEsp32Mqtt.h"
+
+// Network variables
+const char *UBIDOTS_TOKEN   = "BBFF-0aMsYRBJ5JgWojU2IUuwTByFEYqDqi";         // Put here your Ubidots TOKEN
+const char *WIFI_SSID       = "foldy";         // Put here your Wi-Fi SSID
+const char *WIFI_PASS       = "aihr8372";         // Put here your Wi-Fi password
+const char *DEVICE_LABEL    = "DoorNode"; // Put here your Device label to which data  will be published
+const char *VARIABLE_LABEL  = "Motion";   // Put here your Variable label to which data  will be published
+
+const int PUBLISH_FREQUENCY = 5000; // Update rate in milliseconds
+
+Ubidots ubidots(UBIDOTS_TOKEN);
+
+
+// Functions
+void connectionStartUp();
+void callback(char *topic, byte *payload, unsigned int length);
+void sendVariable(int variable);
 
 // Pins:
 const int PIR_PIN = 32; // Motion sensor
@@ -44,6 +61,8 @@ void startUp(){ // Delare startup values
   Serial.begin(9600);
   pinMode(PIR_PIN, INPUT);
   pinMode(HES_PIN, INPUT_PULLUP);
+
+  connectionStartUp();
 }
 
 void updateSensors(){ // Update sensors (only HES, as HES activates PIR);
@@ -124,4 +143,30 @@ void goToSleep(){
     delay(1000);
 
     esp_deep_sleep_start();
+}
+
+// Ubidots
+void connectionStartUp(){
+  // ubidots.setDebug(true);  // uncomment this to make debug messages available
+  ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
+  ubidots.setCallback(callback);
+  ubidots.setup();
+  ubidots.reconnect();
+}
+
+void callback(char *topic, byte *payload, unsigned int length)
+{
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++)
+  {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
+
+void sendVariable(int variable){
+  ubidots.add(VARIABLE_LABEL, variable);
+  ubidots.publish(DEVICE_LABEL);
 }
