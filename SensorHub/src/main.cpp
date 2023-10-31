@@ -52,9 +52,12 @@ int lasttemp = 0;
 int lastvent = 0;
 float hubtemp = 0;
 
+unsigned long screenPrinted = 0;
+
 enum screenModes{
   Temp,
-  Vent
+  Vent,
+  sleepMode
   }; screenModes screenMode = Temp;
 
 String screenLine1 = "Temp: " + String(temp) + "C";
@@ -82,51 +85,37 @@ void screenPrint(String text, String text2) { //Increase the text size
   display.setCursor(0, 10);
   if (text == ""){
     text = screenLine1;
+  } else {
+    screenLine1 = text;
   }
   display.println(text);
   display.setCursor(0, 30);
   if (text2 == ""){
     text2 = screenLine2;
+  } else {
+    screenLine2 = text2;
   }
   display.println(text2);
   display.display();
-  screenLine1 = text;
-  screenLine2 = text2;
-}
-
-bool valueChanged(){
-  if (screenMode == Temp && temp == lasttemp){
-    return false;
-  } else if (screenMode == Vent && vent == lastvent){
-    return false;
-  } else {
-    return true;
-  }
 }
 
 void changeMode(){
   if (screenMode == Temp){
     screenMode = Vent;
-    screenPrint("Vent: " + String(vent) + "%", "");
+    screenLine1 = "Vent: " + String(vent) + "%";
   } else if (screenMode == Vent){
     screenMode = Temp;
-    screenPrint("Temp: " + String(temp) + "C", "");
+    screenLine1 = "Temp: " + String(temp) + "C";
   }
 }
 
 void screen(){
 
-  if (valueChanged()){
-    lasttemp = temp;
-    lastvent = vent;
-
-    if (screenMode == Temp){
-      screenPrint("Temp: " + String(temp) + "C", "");
-    } else if (screenMode == Vent){
-      screenPrint("Vent: " + String(vent) + "%", "");
-    }
+  if (screenMode == Temp){
+    screenPrint("Temp: "+String(temp)+"C", screenLine2);
+  } else if (screenMode == Vent){
+    screenPrint("Vent: "+String(vent)+"%", screenLine2);
   }
-  
 }
 
 void led(){
@@ -161,7 +150,7 @@ void led(){
 
 float readTemp(){
   hubtemp = bme.readTemperature();
-  screenPrint("", "Roomtemp: " + String(hubtemp) + "C");
+  screenLine2 = "Roomtemp: " + String(hubtemp) + "C";
   return hubtemp;
 }
 
@@ -196,11 +185,13 @@ void knob(){
   temp = constrain(temp, 0, 100);
   vent = constrain(vent, 0, 100);
 
+  screen();
 }
 
 void loop2(void *pvParameters)
 {
   // ubidots.setDebug(true);  // uncomment this to make debug messages available
+  screenLine2 = "Connecting to wifi";
   ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
   ubidots.setCallback(callback);
   ubidots.setup();
@@ -209,27 +200,18 @@ void loop2(void *pvParameters)
   for (;;)
   {
 
-    hubtemp = bme.readTemperature();
-
     if (!ubidots.connected()){
-      screenPrint("", "Wifi disconnected");
+      screenLine2 = "Reconnecting to wifi";
       ubidots.connectToWifi(WIFI_SSID, WIFI_PASS);
       ubidots.reconnect();
     }
 
-    if (millis() - timer > PUBLISH_FREQUENCY) // triggers the routine every 5 seconds
-    {
     ubidots.add("Temp", temp); // Insert your variable Labels and the value to be sent
     ubidots.add("Vent", vent);
     ubidots.add("Roomtemp", hubtemp);
     ubidots.publish(DEVICE_LABEL);
 
-    timer = millis();
-    }
-
     ubidots.loop();
-
-    readTemp();
 
     delay(PUBLISH_FREQUENCY);
     //Try removing the publush frequency delay and see if it works / add the publish_frequency delay to the ubidots loop
@@ -299,7 +281,11 @@ void loop() {
 
   led();
 
-  screen();
+  if (millis() - screenPrinted > 5000){
+    readTemp();
+    screenPrinted = millis();
+  }
+  
 
   
 }
