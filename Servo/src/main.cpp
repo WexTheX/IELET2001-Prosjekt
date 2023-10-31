@@ -5,6 +5,16 @@
 #include <Wifi.h>
 #include <EEPROM.h>
 
+//TODO: Save server address in preferences
+      //Save channel in preferences
+        // Perdiodic check if ESP is connected to hub
+        // If disconnected, try to reconnect
+        // If fails to reconnnect, enter "failsafe mode"
+        // Failsafe mode:
+          // - Fully open
+          // - Fully close
+          // - Keep position
+
 Servo servo;
 
 // Set your Board and Server ID 
@@ -13,6 +23,7 @@ Servo servo;
 
 #define MIN_ANGLE 0.0
 #define MAX_ANGLE 90.0
+#define SERVO_PIN 14
 
 uint8_t serverAddress[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 
@@ -46,7 +57,7 @@ int channel = 1;
 unsigned long currentMillis = millis();
 unsigned long previousMillis = 0;
 unsigned long start;                // used to measure Pairing time
-unsigned int readingId = 0;   
+  
 
 void addPeer(const uint8_t * mac_addr, uint8_t chan){
   esp_now_peer_info_t peer;
@@ -190,9 +201,7 @@ void loop() {
   // put your main code here, to run repeatedly:
   if (!servo.attached()) {
     servo.setPeriodHertz(50);
-    servo.attach(14, 500, 2400);
+    servo.attach(SERVO_PIN, 500, 2400);
   }
-  if (autoPairing() == PAIR_PAIRED) {
-    
-  }
+  autoPairing();
 }
