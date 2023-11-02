@@ -166,7 +166,7 @@ void setup() {
     Serial.println("Could not find a valid BME280 sensor, check wiring!");
     while (1);
   }
-  
+  currentTemp = bme.readTemperature();
 
   Serial.print("Client Board MAC Address:  ");
   Serial.println(WiFi.macAddress());
@@ -178,11 +178,9 @@ void setup() {
 }
 
 void loop() { 
-  if (autoPairing() == PAIR_PAIRED) {
-
-    // if temperature changes more than 1 degree since last reading publish new reading
-    currentTemp = bme.readTemperature();
-    if (abs(currentTemp - previousTemp) >= 0.5) {
+  if (abs(currentTemp - previousTemp) >= 0.5) {
+    if (autoPairing() == PAIR_PAIRED) {
+      // if temperature changes more than 1 degree since last reading publish new reading
       previousTemp = currentTemp;
       outData.msgType = DATA;
       outData.id = BOARD_ID;
@@ -190,9 +188,9 @@ void loop() {
       outData.hum = bme.readHumidity();
       esp_err_t result = esp_now_send(serverAddress, (uint8_t *) &outData, sizeof(outData));
     }
-    else {
-      Serial.println("going to sleep now");
-      esp_deep_sleep_start();
-    }
+  }
+  else {
+    Serial.println("going to sleep now");
+    esp_deep_sleep_start();
   }
 }
