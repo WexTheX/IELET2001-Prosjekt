@@ -28,7 +28,7 @@ const char* password = "ArneErBest";*/
 ///////////////////////////////////////////////////////////////////////////
 
 const char *UBIDOTS_TOKEN = "BBFF-0aMsYRBJ5JgWojU2IUuwTByFEYqDqi";  // Put here your Ubidots TOKEN
-const char *WIFI_SSID = "foldy";      // Put here your Wi-Fi SSID
+const char *WIFI_SSID = "8 piece";      // Put here your Wi-Fi SSID
 const char *WIFI_PASS = "aihr8372";      // Put here your Wi-Fi password
 const char *DEVICE_LABEL = "SensorHUB";   // Put here your Device label to which data  will be published
 const char *TEMP_LABEL = "temp"; // Put here your Variable label to which data  will be published
@@ -40,7 +40,7 @@ unsigned long timer = 0;
 
 Ubidots ubidots(UBIDOTS_TOKEN);
 
-TaskHandle_t Loop2;
+//TaskHandle_t Loop2;
 
 // Pin A, Pin B, Button Pin
 SimpleRotary rotary(4,2,5);
@@ -73,6 +73,19 @@ enum screenModes{
 
 String screenLine1 = "Temp: " + String(temp) + "C";
 String screenLine2 = "Roomtemp: " + String(roomtemp) + "C";
+String lastScreenLine1 = "";
+String lastScreenLine2 = "";
+
+  struct ubidotsData
+  {
+    float temp = temp;
+    float vent = vent;
+    float roomtemp = roomtemp;
+    float servoTemp = servoTemp;
+    float servoHum = servoHum;
+    float outsideTemp = outsideTemp;
+    float outsideHum = outsideHum;
+  }; ubidotsData lastData;
 
 esp_now_peer_info_t slave;
 int chan; 
@@ -266,24 +279,28 @@ void callback(char *topic, byte *payload, unsigned int length)
 }
 
 void screenPrint(String text, String text2) { //Increase the text size
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0, 10);
-  if (text == ""){
+  if (text == ""){ //If no text is given, use the last text
     text = screenLine1;
   } else {
     screenLine1 = text;
   }
-  display.println(text);
-  display.setCursor(0, 30);
-  if (text2 == ""){
+  if (text2 == ""){ //If no text is given, use the last text
     text2 = screenLine2;
   } else {
     screenLine2 = text2;
   }
-  display.println(text2);
-  display.display();
+  if (screenLine1 != lastScreenLine1 || screenLine2 != lastScreenLine2){
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    display.setCursor(0, 10);
+    display.println(text);
+    display.setCursor(0, 30);
+    display.println(text2);
+    display.display();
+    lastScreenLine1 = screenLine1;
+    lastScreenLine2 = screenLine2;
+  }
 }
 
 void changeMode(){
@@ -375,85 +392,34 @@ void knob(){
   screen();
 }
 
-void loop2(void *pvParameters)
+/*void loop2(void *pvParameters)
 {
-  // ubidots.setDebug(true);  // uncomment this to make debug messages available
-  screenLine2 = "Connecting to wifi";
-  ubidots.connect();
-  chan = WiFi.channel();
-  ubidots.connect();
-  ubidots.setCallback(callback);
-  ubidots.setup();
-  ubidots.reconnect();
-  ubidots.subscribeLastValue(DEVICE_LABEL, TEMP_LABEL);
-  ubidots.subscribeLastValue(DEVICE_LABEL, VENT_LABEL);
-
-  struct ubidotsData
-  {
-    float temp = temp;
-    float vent = vent;
-    float roomtemp = roomtemp;
-    float servoTemp = servoTemp;
-    float servoHum = servoHum;
-    float outsideTemp = outsideTemp;
-    float outsideHum = outsideHum;
-  }; ubidotsData lastData;
+  
   
 
 
   for (;;)
   {
 
-    if (!ubidots.connected()){
-      screenLine2 = "Reconnecting to wifi";
-      ubidots.connect();
-      ubidots.reconnect();
-      ubidots.subscribeLastValue(DEVICE_LABEL, TEMP_LABEL);
-      ubidots.subscribeLastValue(DEVICE_LABEL, VENT_LABEL);
-    }
-
-
-    if (millis() - timer > PUBLISH_FREQUENCY){
-      if (lastData.temp != temp){
-        ubidots.add("Temp", temp);
-        lastData.temp = temp;
-      }
-      if (lastData.vent != vent){
-        ubidots.add("Vent", vent);
-        lastData.vent = vent;
-      }
-      if (lastData.roomtemp != roomtemp){
-        ubidots.add("Roomtemp", roomtemp);
-        lastData.roomtemp = roomtemp;
-      }
-      if (lastData.servoTemp != servoTemp){
-        ubidots.add("VentTemp", servoTemp);
-        lastData.servoTemp = servoTemp;
-      }
-      if (lastData.servoHum != servoHum){
-        ubidots.add("VentHum", servoHum);
-        lastData.servoHum = servoHum;
-      }
-      if (lastData.outsideTemp != outsideTemp){
-        ubidots.add("OutsideTemp", outsideTemp);
-        lastData.outsideTemp = outsideTemp;
-      }
-      if (lastData.outsideHum != outsideHum){
-        ubidots.add("OutsideHum", outsideHum);
-        lastData.outsideHum = outsideHum;
-      }
-
-      ubidots.publish(DEVICE_LABEL);
-
-      timer = millis();
-    }
-    ubidots.loop();
 
     //delay(PUBLISH_FREQUENCY);
     //Try removing the publush frequency delay and see if it works / add the publish_frequency delay to the ubidots loop
   }
-}
+}*/
 
+
+void tempLogic(){
+
+  if (screenMode != Vent){
+    if (outsideTemp < roomtemp && temp < roomtemp){
+    vent = map(roomtemp-outsideTemp, 5, 35, 0, 100);
+    } else if (temp >= roomtemp){
+      vent = 0;
+    }
+  }
+  
+
+}
 
 
 
@@ -469,17 +435,29 @@ void setup() {
   
   // put your setup code here, to run once
 
+  ubidots.setDebug(true);  // uncomment this to make debug messages available
+  screenLine2 = "Connecting to wifi";
+  chan = WiFi.channel();
+  ubidots.connect();
+  ubidots.setCallback(callback);
+  ubidots.setup();
+  //ubidots.reconnect();
+  ubidots.subscribeLastValue(DEVICE_LABEL, TEMP_LABEL);
+  ubidots.subscribeLastValue(DEVICE_LABEL, VENT_LABEL);
+
+
+
   timer = millis();
 
-  xTaskCreatePinnedToCore(
-                    loop2,   /* Task function. */
-                    "Loop 2",     /* name of task. */
-                    4096,       /* Stack size of task */
-                    NULL,        /* parameter of the task */
-                    tskIDLE_PRIORITY,           /* priority of the task */
-                    &Loop2,      /* Task handle to keep track of created task */
-                    0);          /* pin task to core 0 */
-  
+  /*xTaskCreatePinnedToCore(
+                    loop2,   " Task function. "
+                    "Loop 2",     " name of task. "
+                    4096,       " Stack size of task "
+                    NULL,        " parameter of the task "
+                    tskIDLE_PRIORITY,           " priority of the task "
+                    &Loop2,      " Task handle to keep track of created task "
+                    0);          " pin task to core 0 "
+  */  
 
   pinMode(18, OUTPUT);
   pinMode(19, OUTPUT);
@@ -532,6 +510,8 @@ void loop() {
 
   led();
 
+  tempLogic();
+
   if (millis() - screenPrinted > 5000){
     readTemp();
     screenPrinted = millis();
@@ -545,6 +525,50 @@ void loop() {
     lastVent = vent;
   }
   
+  if (!ubidots.connected()){
+      screenLine2 = "Reconnecting to wifi";
+      ubidots.connect();
+      //ubidots.reconnect();
+      ubidots.subscribeLastValue(DEVICE_LABEL, TEMP_LABEL);
+      ubidots.subscribeLastValue(DEVICE_LABEL, VENT_LABEL);
+    }
+
+
+    if (millis() - timer > PUBLISH_FREQUENCY){
+      if (lastData.temp != temp){
+        ubidots.add("Temp", temp);
+        lastData.temp = temp;
+      }
+      if (lastData.vent != vent){
+        ubidots.add("Vent", vent);
+        lastData.vent = vent;
+      }
+      if (lastData.roomtemp != roomtemp){
+        ubidots.add("Roomtemp", roomtemp);
+        lastData.roomtemp = roomtemp;
+      }
+      if (lastData.servoTemp != servoTemp){
+        ubidots.add("VentTemp", servoTemp);
+        lastData.servoTemp = servoTemp;
+      }
+      if (lastData.servoHum != servoHum){
+        ubidots.add("VentHum", servoHum);
+        lastData.servoHum = servoHum;
+      }
+      if (lastData.outsideTemp != outsideTemp){
+        ubidots.add("OutsideTemp", outsideTemp);
+        lastData.outsideTemp = outsideTemp;
+      }
+      if (lastData.outsideHum != outsideHum){
+        ubidots.add("OutsideHum", outsideHum);
+        lastData.outsideHum = outsideHum;
+      }
+
+      ubidots.publish(DEVICE_LABEL);
+
+      timer = millis();
+    }
+    ubidots.loop();
 
   
 }
