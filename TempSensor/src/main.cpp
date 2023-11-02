@@ -10,12 +10,15 @@
 #include <esp_wifi.h>
 #include <WiFi.h>
 
-#define SEALEVELPRESSURE_HPA (1013.25)
-
 #define BOARD_ID 2
 #define MAX_CHANNEL 13
 
-uint8_t serverAddress[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+#define uS_TO_S_FACTOR 1000000  /* Conversion factor for micro seconds to seconds */
+#define TIME_TO_SLEEP  5        /* Time ESP32 will go to sleep (in seconds) */
+
+RTC_DATA_ATTR int bootCount = 0;
+
+RTC_DATA_ATTR uint8_t serverAddress[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 
 Adafruit_BME280 bme; // I2C
 
@@ -39,7 +42,7 @@ struct_pairing pairingData;
 
 //enums
 enum PairingStatus {NOT_PAIRED, PAIR_REQUEST, PAIR_REQUESTED, PAIR_PAIRED,};
-PairingStatus pairingStatus = NOT_PAIRED;
+RTC_DATA_ATTR PairingStatus pairingStatus = NOT_PAIRED;
 
 enum MessageType {PAIRING, DATA,};
 MessageType messageType;
@@ -47,12 +50,14 @@ MessageType messageType;
 #ifdef SAVE_CHANNEL
   int lastChannel;
 #endif  
-int channel = 1;
+RTC_DATA_ATTR int channel = 1;
 
 unsigned long currentMillis = millis();
 unsigned long previousMillis = 0;   // Stores last time temperature was published
 const long interval = 10000;        // Interval at which to publish sensor readings
 unsigned long start;                // used to measure Pairing time
+RTC_DATA_ATTR float previousTemp = 0.0;           // used to detect change in temperature
+float currentTemp = 0.0;            // used to detect change in temperature
 
 void addPeer(const uint8_t * mac_addr, uint8_t chan){
   esp_now_peer_info_t peer;
@@ -102,12 +107,7 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
       Serial.print(" in ");
       Serial.print(millis()-start);
       Serial.println("ms");
-      addPeer(pairingData.macAddr, pairingData.channel); // add the server  to the peer list 
-      #ifdef SAVE_CHANNEL
-        lastChannel = pairingData.channel;
-        EEPROM.write(0, pairingData.channel);
-        EEPROM.commit();
-      #endif  
+      addPeer(pairingData.macAddr, pairingData.channel); // add the server to the peer list 
       pairingStatus = PAIR_PAIRED;             // set the pairing status
     }
     break;
@@ -119,29 +119,24 @@ PairingStatus autoPairing(){
     case PAIR_REQUEST:
     Serial.print("Pairing request on channel "  );
     Serial.println(channel);
-
     // set WiFi channel   
     ESP_ERROR_CHECK(esp_wifi_set_channel(channel,  WIFI_SECOND_CHAN_NONE));
     if (esp_now_init() != ESP_OK) {
       Serial.println("Error initializing ESP-NOW");
     }
-
     // set callback routines
     esp_now_register_send_cb(OnDataSent);
     esp_now_register_recv_cb(OnDataRecv);
-  
     // set pairing data to send to the server
     pairingData.msgType = PAIRING;
     pairingData.id = BOARD_ID;     
     pairingData.channel = channel;
-
     // add peer and send request
     addPeer(serverAddress, channel);
     esp_now_send(serverAddress, (uint8_t *) &pairingData, sizeof(pairingData));
     previousMillis = millis();
     pairingStatus = PAIR_REQUESTED;
     break;
-
     case PAIR_REQUESTED:
     // time out to allow receiving response from server
     currentMillis = millis();
@@ -155,10 +150,6 @@ PairingStatus autoPairing(){
       pairingStatus = PAIR_REQUEST;
     }
     break;
-
-    case PAIR_PAIRED:
-      // nothing to do here 
-    break;
   }
   return pairingStatus;
 }  
@@ -166,10 +157,16 @@ PairingStatus autoPairing(){
 void setup() {
   Serial.begin(115200);
 
+  ++bootCount;
+  Serial.println("Boot number: " + String(bootCount));
+
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+
   if (!bme.begin(0x76)) {
     Serial.println("Could not find a valid BME280 sensor, check wiring!");
     while (1);
   }
+  
 
   Serial.print("Client Board MAC Address:  ");
   Serial.println(WiFi.macAddress());
@@ -177,30 +174,25 @@ void setup() {
   WiFi.disconnect();
   start = millis();
 
-  #ifdef SAVE_CHANNEL 
-    EEPROM.begin(10);
-    lastChannel = EEPROM.read(0);
-    Serial.println(lastChannel);
-    if (lastChannel >= 1 && lastChannel <= MAX_CHANNEL) {
-      channel = lastChannel; 
-    }
-    Serial.println(channel);
-  #endif  
   pairingStatus = PAIR_REQUEST;
 }
 
 void loop() { 
   if (autoPairing() == PAIR_PAIRED) {
-    unsigned long currentMillis = millis();
-    if (currentMillis - previousMillis >= interval) {
-      // Save the last time a new reading was published
-      previousMillis = currentMillis;
-      //Set values to send
+
+    // if temperature changes more than 1 degree since last reading publish new reading
+    currentTemp = bme.readTemperature();
+    if (abs(currentTemp - previousTemp) >= 0.5) {
+      previousTemp = currentTemp;
       outData.msgType = DATA;
       outData.id = BOARD_ID;
-      outData.temp = bme.readTemperature();
+      outData.temp = currentTemp;
       outData.hum = bme.readHumidity();
       esp_err_t result = esp_now_send(serverAddress, (uint8_t *) &outData, sizeof(outData));
+    }
+    else {
+      Serial.println("going to sleep now");
+      esp_deep_sleep_start();
     }
   }
 }
