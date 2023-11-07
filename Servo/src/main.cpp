@@ -5,27 +5,18 @@
 #include <Wifi.h>
 #include <EEPROM.h>
 
-//TODO: Save server address in preferences
-      //Save channel in preferences
-        // Perdiodic check if ESP is connected to hub
-        // If disconnected, try to reconnect
-        // If fails to reconnnect, enter "failsafe mode"
-        // Failsafe mode:
-          // - Fully open
-          // - Fully close
-          // - Keep position
-
 Servo servo;
 
 // Set your Board and Server ID 
-#define BOARD_ID 1
-#define MAX_CHANNEL 13  // 11 for North America // 13 in Europe
+#define BOARD_ID 1 // change this to a unique value for each ESP in your project
+#define MAX_CHANNEL 13  // maximum WiFi channel number
 
-#define MIN_ANGLE 0.0
+// limits
+#define MIN_ANGLE 0.0 
 #define MAX_ANGLE 90.0
-#define SERVO_PIN 14
+#define SERVO_PIN 14 
 
-uint8_t serverAddress[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+uint8_t serverAddress[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF}; // broadcast address
 
 typedef struct struct_message_actuator {
   uint8_t msgType;
@@ -33,15 +24,15 @@ typedef struct struct_message_actuator {
   float percentage;
 } struct_message;
 
-typedef struct struct_pairing {       // new structure for pairing
+typedef struct struct_pairing {
     uint8_t msgType;
     uint8_t id;
     uint8_t macAddr[6];
     uint8_t channel;
 } struct_pairing;
 
-struct_message inData;  // data received
-struct_pairing pairingData;
+struct_message inData;
+struct_pairing pairingData; 
 
 enum PairingStatus {NOT_PAIRED, PAIR_REQUEST, PAIR_REQUESTED, PAIR_PAIRED,};
 PairingStatus pairingStatus = NOT_PAIRED;
@@ -49,14 +40,11 @@ PairingStatus pairingStatus = NOT_PAIRED;
 enum MessageType {PAIRING, DATA,};
 MessageType messageType;
 
-#ifdef SAVE_CHANNEL
-  int lastChannel;
-#endif  
 int channel = 1;
 
 unsigned long currentMillis = millis();
 unsigned long previousMillis = 0;
-unsigned long start;                // used to measure Pairing time
+unsigned long start;                // used to measure on-time
   
 
 void addPeer(const uint8_t * mac_addr, uint8_t chan){
@@ -114,11 +102,6 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
       printMAC(pairingData.macAddr);
       Serial.printf(" on channel %d in %lu ms\n", pairingData.channel, millis()-start);
       addPeer(pairingData.macAddr, pairingData.channel); // add the server  to the peer list 
-      #ifdef SAVE_CHANNEL
-        lastChannel = pairingData.channel;
-        EEPROM.write(0, pairingData.channel);
-        EEPROM.commit();
-      #endif  
       pairingStatus = PAIR_PAIRED;             // set the pairing status
     }
     break;
@@ -166,10 +149,6 @@ PairingStatus autoPairing(){
       pairingStatus = PAIR_REQUEST;
     }
     break;
-
-    case PAIR_PAIRED:
-      // nothing to do here 
-    break;
   }
   return pairingStatus;
 }  
@@ -184,16 +163,6 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   start = millis();
-
-  #ifdef SAVE_CHANNEL 
-    EEPROM.begin(10);
-    lastChannel = EEPROM.read(0);
-    Serial.println(lastChannel);
-    if (lastChannel >= 1 && lastChannel <= MAX_CHANNEL) {
-      channel = lastChannel; 
-    }
-    Serial.println(channel);
-  #endif  
   pairingStatus = PAIR_REQUEST;
 }
 

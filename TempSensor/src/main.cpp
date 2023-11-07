@@ -10,13 +10,13 @@
 #include <esp_wifi.h>
 #include <WiFi.h>
 
-#define BOARD_ID 2
-#define MAX_CHANNEL 13
+#define BOARD_ID 2 // change this to a unique value for each ESP in your project
+#define MAX_CHANNEL 13 // maximum WiFi channel number
 
 #define uS_TO_S_FACTOR 1000000  /* Conversion factor for micro seconds to seconds */
 #define TIME_TO_SLEEP  5        /* Time ESP32 will go to sleep (in seconds) */
 
-RTC_DATA_ATTR int bootCount = 0;
+RTC_DATA_ATTR int bootCount = 0; 
 
 RTC_DATA_ATTR uint8_t serverAddress[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 
@@ -30,15 +30,15 @@ typedef struct struct_message_temp {
   float hum;
 } struct_message;
 
-typedef struct struct_pairing {       // new structure for pairing
+typedef struct struct_pairing {
     uint8_t msgType;
     uint8_t id;
     uint8_t macAddr[6];
     uint8_t channel;
 } struct_pairing;
 
-struct_message_temp outData;  // data sent
-struct_pairing pairingData;
+struct_message_temp outData;
+struct_pairing pairingData; 
 
 //enums
 enum PairingStatus {NOT_PAIRED, PAIR_REQUEST, PAIR_REQUESTED, PAIR_PAIRED,};
@@ -47,14 +47,10 @@ RTC_DATA_ATTR PairingStatus pairingStatus = NOT_PAIRED;
 enum MessageType {PAIRING, DATA,};
 MessageType messageType;
 
-#ifdef SAVE_CHANNEL
-  int lastChannel;
-#endif  
-RTC_DATA_ATTR int channel = 1;
+RTC_DATA_ATTR int channel = 1; 
 
 unsigned long currentMillis = millis();
 unsigned long previousMillis = 0;   // Stores last time temperature was published
-const long interval = 10000;        // Interval at which to publish sensor readings
 unsigned long start;                // used to measure Pairing time
 RTC_DATA_ATTR float previousTemp = 0.0;           // used to detect change in temperature
 float currentTemp = 0.0;            // used to detect change in temperature
@@ -155,6 +151,7 @@ PairingStatus autoPairing(){
 }  
 
 void setup() {
+  start = millis();
   Serial.begin(115200);
 
   ++bootCount;
@@ -172,7 +169,6 @@ void setup() {
   Serial.println(WiFi.macAddress());
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
-  start = millis();
 
   pairingStatus = PAIR_REQUEST;
 }
@@ -190,7 +186,7 @@ void loop() {
     }
   }
   else {
-    Serial.println("going to sleep now");
+    Serial.printf("powered on for %lu ms\n", millis() - start);
     esp_deep_sleep_start();
   }
 }
