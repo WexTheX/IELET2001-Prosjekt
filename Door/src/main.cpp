@@ -17,6 +17,8 @@ const char *WIFI_PASS       = "aihr8372";                             // Put her
 const char *DEVICE_LABEL    = "DoorNode";                             // Put here your Device label to which data  will be published
 const char *VARIABLE_LABEL  = "Motion";                               // Put here your Variable label to which data  will be published
 
+const int PUBLISH_FREQUENCY = 5000; // Update rate in milliseconds
+
 Ubidots ubidots(UBIDOTS_TOKEN);
 
 // Ubidots functions
@@ -27,6 +29,7 @@ void sendVariable(int variable);
 // Pins:
 const int PIR_PIN = 32; // Motion sensor
 const int HES_PIN = 33; // Hall effect sensor
+const int LED_PIN = 25;
 
 // Common flags
 int timerDelay = 10000; 
@@ -63,6 +66,7 @@ void startUp(){ // Declare startup values and run startup functions
   Serial.begin(9600);
   pinMode(PIR_PIN, INPUT);
   pinMode(HES_PIN, INPUT_PULLUP);
+  pinMode(LED_PIN, OUTPUT);
 
   connectionStartUp();
 }
@@ -84,7 +88,7 @@ void updateHES(){ // Update magnet sensor
   prev_HES_state = HES_state; // Save old magnet state to compare
 
   HES_state = digitalRead(HES_PIN); // Read magnet state
-  Serial.print("Magnet sensor: "); Serial.println(HES_state);
+  //Serial.print("Magnet sensor: "); Serial.println(HES_state);
 
   if(HES_state == 1){ // If sensor responds "1", door is open.
     Serial.println("Door open");
@@ -119,6 +123,10 @@ void updatePIR(){ // Update motion detection sensor
   if(millis() - magnetMillis >= 1000){ // Wait one second for door to settle.
     if(PIR_state == 1){ // If motion detected, then someone is inside (unless low chance accident, f.eks something falling over within timer)
       motion_state = true; // Save this for later
+      digitalWrite(LED_PIN, 1); // Turn on LED when active
+    }
+    else{
+      digitalWrite(LED_PIN, 0); // Turn off LED when not active
     }
   }
 
