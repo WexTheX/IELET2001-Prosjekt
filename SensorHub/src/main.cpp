@@ -1,4 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
+// Libraries needed:
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
@@ -16,31 +17,25 @@
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define SEALEVELPRESSURE_HPA (1013.25) //define the sea level pressure
 
-const char *UBIDOTS_TOKEN = "BBFF-0aMsYRBJ5JgWojU2IUuwTByFEYqDqi";  // Put here your Ubidots TOKEN
-const char *WIFI_SSID = "foldy";      // Put here your Wi-Fi SSID
-const char *WIFI_PASS = "aihr8372";      // Put here your Wi-Fi password
+const char *UBIDOTS_TOKEN = "";  // Put here your Ubidots TOKEN
+const char *WIFI_SSID = "";      // Put here your Wi-Fi SSID
+const char *WIFI_PASS = "";      // Put here your Wi-Fi password
 const char *DEVICE_LABEL = "SensorHUB";   // Put here your Device label to which data  will be published
 const char *TEMP_LABEL = "temp"; // Put here your Variable label to which data  will be published
 const char *VENT_LABEL = "vent"; // Put here your Variable label to which data  will be published
 
 ///////////////////////////////////////////////////////////////////////////
 
-Ubidots ubidots(UBIDOTS_TOKEN);
+Ubidots ubidots(UBIDOTS_TOKEN); //defines ubidots as a variable
 
 SimpleRotary rotary(4,2,5); // Pin A, Pin B, Button Pin
 
-Adafruit_BME280 bme; // I2C
+Adafruit_BME280 bme; // I2C for the temp sensor
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1); // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 
 
 ///////////////////////////////////////////////////////////////////////////
-
-enum screenModes{
-  Temp,
-  Vent,
-  sleepMode
-  }; screenModes screenMode = Temp;
 
 esp_now_peer_info_t slave;
 int chan; 
@@ -50,14 +45,14 @@ MessageType messageType;
 
 int counter = 0;
 
-typedef struct struct_message_temp {
+typedef struct struct_message_temp { //defines the varibles received from the sensor module
   uint8_t msgType;
   uint8_t id;
   float temp;
   float hum;
 } struct_message;
 
-typedef struct struct_message_actuator {
+typedef struct struct_message_actuator { //defines the varibles received from the vent module
   uint8_t msgType;
   uint8_t id;
   float percentage;
@@ -77,22 +72,23 @@ struct_pairing pairingData;
 
 ///////////////////////////////////////////////////////////////////////////
 
+enum screenModes{ // enum for the different screen modes
+  Temp,
+  Vent,
+  }; screenModes screenMode = Temp;
 
+const int PUBLISH_FREQUENCY = 10000; // Update rate in milliseconds, the data will be sent every 10 seconds
 
-const int PUBLISH_FREQUENCY = 10000; // Update rate in milliseconds
+unsigned long timer = 0; // Timer to count the time between publishing data
 
-unsigned long timer = 0;
-
-unsigned long delayTime;
-
-struct hubData{
+struct hubData{ // struct for the adjustable values of the hub
   int setTemp = 20;
   int setVent = 50;
   int lastVent = 0;
 } hubD; 
 hubData lastHubData;
 
-struct sensorData{
+struct sensorData{ // struct for the sensor data
   int id;
   float temp;
   float hum;
@@ -104,9 +100,9 @@ sensorData lastHub{0, 0, 0};
 sensorData lastServo{1, 0, 0};
 sensorData lastOutside{2, 0, 0};
 
-unsigned long screenPrinted = 0;
+unsigned long screenPrinted = 0; //used to check if the screen has been updated recently
 
-struct ScreenData{
+struct ScreenData{ //struct for the info that is displayed on the screen
   String line1;
   String line2;
 };
@@ -117,7 +113,7 @@ ScreenData lastScreenData{"", ""};
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
 
-void printMAC(const uint8_t * mac_addr){
+void printMAC(const uint8_t * mac_addr){ //prints the mac address to the serial monitor
   char macStr[18];
   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
@@ -209,8 +205,8 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
   }
 }
 
-void initESP_NOW(){
-    // Init ESP-NOW
+void initESP_NOW(){  // Initialize ESP-NOW
+
     if (esp_now_init() != ESP_OK) {
       Serial.println("Error initializing ESP-NOW");
       return;
@@ -222,7 +218,7 @@ void initESP_NOW(){
     esp_now_register_recv_cb(OnDataRecv);
 } 
 
-void setupWifi() {
+void setupWifi() { //Configures the wifi
   Serial.println();
   Serial.print("Server MAC Address:  ");
   Serial.println(WiFi.macAddress());
@@ -249,7 +245,8 @@ void setupWifi() {
 
 
 void callback(char *topic, byte *payload, unsigned int length)
-{
+{ // Callback for subscribing to the Ubidots MQTT broker, this method will be called everytime the device receives data from Ubidots.
+// This function updated the values of the variables in the hubData struct
   String message = "";
   Serial.print("UBI: [");
   Serial.print(topic);
@@ -269,7 +266,7 @@ void callback(char *topic, byte *payload, unsigned int length)
 
 ///////////////////////////////////////////////////////////////////////////
 
-void screenPrint(String text, String text2) { //Increase the text size
+void screenPrint(String text, String text2) { //Prints the given text to the screen
   if (text == ""){ //If no text is given, use the last text
     text = screenData.line1;
   } else {
@@ -280,7 +277,7 @@ void screenPrint(String text, String text2) { //Increase the text size
   } else {
     screenData.line2 = text2;
   }
-  if (screenData.line1 != lastScreenData.line1 || screenData.line2 != lastScreenData.line2){
+  if (screenData.line1 != lastScreenData.line1 || screenData.line2 != lastScreenData.line2){ //if the text has changed, print it to the screen
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(WHITE);
@@ -293,7 +290,7 @@ void screenPrint(String text, String text2) { //Increase the text size
   }
 }
 
-void changeMode(){
+void changeMode(){ //Changes the screen mode between Temp and Vent
   if (screenMode == Temp){
     screenMode = Vent;
     screenData.line1 = "Vent: " + String(hubD.setVent) + "%";
@@ -303,7 +300,7 @@ void changeMode(){
   }
 }
 
-void screen(){
+void screen(){ //Prints the screen
 
   if (screenMode == Temp){
     screenPrint("Temp: "+String(hubD.setTemp)+"C", screenData.line2);
@@ -312,7 +309,7 @@ void screen(){
   }
 }
 
-void led(){
+void led(){ //Controls the led in the rotary encoder
   
   if (screenMode == Vent){
     int l = map(hubD.setVent, 0, 100, 0, 2);
@@ -342,13 +339,13 @@ void led(){
   }
 }
 
-float readTemp(){
+float readTemp(){ //reads the temperature from the sensor and prints it to the screen
   Hub.temp = bme.readTemperature();
   screenData.line2 = "Roomtemp: " + String(Hub.temp) + "C";
   return Hub.temp;
 }
 
-void knob(){
+void knob(){ //checks the rotary encoder for input and changes the setpoints accordingly
 
   byte rotation = rotary.rotate(); // 0 = not turning, 1 = CW, 2 = CCW
   byte push = rotary.push(); // 0 = not pushed, 1 = pushed
@@ -383,7 +380,7 @@ void knob(){
 }
 
 
-void tempLogic(){
+void tempLogic(){ //Calculates the setpoint for the vent module based on the temperature difference between the room and the outside
 
   if (screenMode != Vent){
     int InnOut =  Hub.temp - Outside.temp;
@@ -411,23 +408,17 @@ void setup() {
   WiFi.mode(WIFI_AP_STA);
   setupWifi();
   initESP_NOW();
-  
-  // put your setup code here, to run once
 
-  ubidots.setDebug(true);  // uncomment this to make debug messages available
+  //ubidots.setDebug(true);  // uncomment this to make debug messages available
   screenData.line2 = "Connecting to wifi";
   chan = WiFi.channel();
   ubidots.connect();
   ubidots.setCallback(callback);
   ubidots.setup();
-  //ubidots.reconnect();
   ubidots.subscribeLastValue(DEVICE_LABEL, TEMP_LABEL);
   ubidots.subscribeLastValue(DEVICE_LABEL, VENT_LABEL);
 
-
-
   timer = millis();
-
 
   pinMode(18, OUTPUT);
   pinMode(19, OUTPUT);
@@ -436,7 +427,7 @@ void setup() {
 
   unsigned status;
   status = bme.begin(0x76); // I2C address. I2C scanner found 0x76
-  if (!status) {
+  if (!status) { //checks if the temp sensor is connected
         Serial.println("Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
         Serial.print("SensorID was: 0x"); Serial.println(bme.sensorID(),16);
         Serial.print("        ID of 0xFF probably means a bad address, a BMP 180 or BMP 085\n");
@@ -450,31 +441,31 @@ void setup() {
     Serial.println(F("SSD1306 allocation failed"));
     for(;;);
   }
-  delay(2000);
+  delay(2000); //delay for the screen to initialize
   display.clearDisplay();
 
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0, 10);
-  // Display static text
+  // Display static text for startup
   display.println("Hello, world!");
   display.display(); 
 }
 
 void loop() {  
 
-  knob();
+  knob(); //checks the rotary encoder for input
 
-  led();
+  led(); //updates the led
 
-  tempLogic();
+  tempLogic(); //checks the temperature difference between the room and the outside and sets the vent setpoint accordingly
 
-  if (millis() - screenPrinted > 5000){
+  if (millis() - screenPrinted > 5000){ //prints the screen every 5 seconds (is overrided by other screenPrints)
     readTemp();
     screenPrinted = millis();
   }
 
-  if (hubD.lastVent != hubD.setVent){
+  if (hubD.lastVent != hubD.setVent){ //sends the vent setpoint to the vent module
     outgoingSetpoints.msgType = DATA;
     outgoingSetpoints.id = 0;
     outgoingSetpoints.percentage = hubD.setVent;
@@ -482,16 +473,15 @@ void loop() {
     hubD.lastVent = hubD.setVent;
   }
   
-  if (!ubidots.connected()){
+  if (!ubidots.connected()){ //reconnects to ubidots if the connection is lost
       screenData.line2 = "Reconnecting to wifi";
       ubidots.connect();
-      //ubidots.reconnect();
       ubidots.subscribeLastValue(DEVICE_LABEL, TEMP_LABEL);
       ubidots.subscribeLastValue(DEVICE_LABEL, VENT_LABEL);
     }
 
 
-    if (millis() - timer > PUBLISH_FREQUENCY){
+    if (millis() - timer > PUBLISH_FREQUENCY){ //publishes the data to ubidots every 10 seconds
       if (int(lastHubData.setTemp) != int(hubD.setTemp)){
         ubidots.add("Temp", hubD.setTemp);
         Serial.println("temp"+String(hubD.setTemp));
