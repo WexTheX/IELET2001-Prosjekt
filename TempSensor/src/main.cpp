@@ -33,7 +33,7 @@ typedef struct struct_message_temp {
 typedef struct struct_pairing {
     uint8_t msgType;
     uint8_t id;
-    uint8_t macAddr[6];
+    uint8_t macAddr[6]; 
     uint8_t channel;
 } struct_pairing;
 
@@ -55,34 +55,35 @@ unsigned long start;                // used to measure Pairing time
 RTC_DATA_ATTR float previousTemp = 0.0;           // used to detect change in temperature
 float currentTemp = 0.0;            // used to detect change in temperature
 
-void addPeer(const uint8_t * mac_addr, uint8_t chan){
-  esp_now_peer_info_t peer;
-  ESP_ERROR_CHECK(esp_wifi_set_channel(chan ,WIFI_SECOND_CHAN_NONE));
-  esp_now_del_peer(mac_addr);
-  memset(&peer, 0, sizeof(esp_now_peer_info_t));
-  peer.channel = chan;
-  peer.encrypt = false;
-  memcpy(peer.peer_addr, mac_addr, sizeof(uint8_t[6]));
-  if (esp_now_add_peer(&peer) != ESP_OK){
+void addPeer(const uint8_t * mac_addr, uint8_t chan){ // add peer to peer list and set channel
+  esp_now_peer_info_t peer; 
+  ESP_ERROR_CHECK(esp_wifi_set_channel(chan ,WIFI_SECOND_CHAN_NONE)); // set WiFi channel
+  esp_now_del_peer(mac_addr); // delete peer if it exists
+
+  memset(&peer, 0, sizeof(esp_now_peer_info_t)); // clear peer data
+  peer.channel = chan; // set channel
+  peer.encrypt = false; // no encryption
+  memcpy(peer.peer_addr, mac_addr, sizeof(uint8_t[6])); // set peer MAC address
+  if (esp_now_add_peer(&peer) != ESP_OK){ // add peer and check for success
     Serial.println("Failed to add peer");
     return;
   }
-  memcpy(serverAddress, mac_addr, sizeof(uint8_t[6]));
+  memcpy(serverAddress, mac_addr, sizeof(uint8_t[6])); // set server MAC address
 }
 
-void printMAC(const uint8_t * mac_addr){
+void printMAC(const uint8_t * mac_addr){ // print MAC address to Serial
   char macStr[18];
   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
   Serial.print(macStr);
 }
 
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) { // callback when data is sent
   Serial.print("\r\nLast Packet Send Status:\t");
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) { 
+void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) { // callback when data is received
   Serial.print("Packet received from: ");
   printMAC(mac_addr);
   Serial.println();
@@ -110,7 +111,7 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
   }  
 }
 
-PairingStatus autoPairing(){
+PairingStatus autoPairing(){ // automatic pairing routine
   switch(pairingStatus) {
     case PAIR_REQUEST:
     Serial.print("Pairing request on channel "  );
@@ -151,22 +152,26 @@ PairingStatus autoPairing(){
 }  
 
 void setup() {
-  start = millis();
+  start = millis(); // start awake timer
   Serial.begin(115200);
 
-  ++bootCount;
+  ++bootCount; // increment boot number and print it every reboot
   Serial.println("Boot number: " + String(bootCount));
 
-  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR); // configure deep sleep wake up timer
 
-  if (!bme.begin(0x76)) {
+  // initialize BME280 sensor
+  if (!bme.begin(0x76)) { 
     Serial.println("Could not find a valid BME280 sensor, check wiring!");
     while (1);
   }
-  currentTemp = bme.readTemperature();
+  currentTemp = bme.readTemperature(); 
 
-  Serial.print("Client Board MAC Address:  ");
+  // Print MAC address to serial
+  Serial.print("Client Board MAC Address:  "); 
   Serial.println(WiFi.macAddress());
+
+  // initialize WiFi as station
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
 
