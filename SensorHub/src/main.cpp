@@ -37,37 +37,35 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1); // Declaration
 
 ///////////////////////////////////////////////////////////////////////////
 
-esp_now_peer_info_t slave;
-int chan; 
+esp_now_peer_info_t slave; //defines the slave object for the esp-now
+int chan; // int-chan uWu
 
-enum MessageType {PAIRING, DATA,};
-MessageType messageType;
+enum MessageType {PAIRING, DATA,}; // enum for the different message types
+MessageType messageType; // defines enum variable for the message type
 
-int counter = 0;
+typedef struct struct_message_temp { //defines the variables received from the sensor module
+  uint8_t msgType; // can be pairing or data
+  uint8_t id; // board id
+  float temp; // temperature
+  float hum; // humidity
+} struct_message; 
 
-typedef struct struct_message_temp { //defines the varibles received from the sensor module
-  uint8_t msgType;
-  uint8_t id;
-  float temp;
-  float hum;
-} struct_message;
-
-typedef struct struct_message_actuator { //defines the varibles received from the vent module
-  uint8_t msgType;
-  uint8_t id;
-  float percentage;
+typedef struct struct_message_actuator { //defines the variables received from the vent module
+  uint8_t msgType; // can be pairing or data
+  uint8_t id; // board id
+  float percentage; // actuator percentage
 } struct_message_actuator;
 
 typedef struct struct_pairing {       // new structure for pairing
-    uint8_t msgType;
-    uint8_t id;
-    uint8_t macAddr[6];
-    uint8_t channel;
+    uint8_t msgType; // can be pairing or data
+    uint8_t id; // board id
+    uint8_t macAddr[6]; // mac address of the sender
+    uint8_t channel; // channel of the sender
 } struct_pairing;
 
-struct_message_temp incomingReadings;
-struct_message_actuator outgoingSetpoints;
-struct_pairing pairingData;
+struct_message_temp incomingReadings; // object for received data from the sensor module
+struct_message_actuator outgoingSetpoints; // object for data to be sent to the vent module
+struct_pairing pairingData; // object for pairing data
 
 
 ///////////////////////////////////////////////////////////////////////////
@@ -114,69 +112,56 @@ ScreenData lastScreenData{"", ""};
 ///////////////////////////////////////////////////////////////////////////
 
 void printMAC(const uint8_t * mac_addr){ //prints the mac address to the serial monitor
-  char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+  char macStr[18]; // converts the mac address to a c-string
+  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x", // prints the mac address to macStr
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-  Serial.print(macStr);
+  Serial.print(macStr); // prints the mac address to the serial monitor
 }
 
 bool addPeer(const uint8_t *peer_addr) {      // add pairing
-  memset(&slave, 0, sizeof(slave));
-  const esp_now_peer_info_t *peer = &slave;
-  memcpy(slave.peer_addr, peer_addr, 6);
+  memset(&slave, 0, sizeof(slave)); // clear slave data structure
+  const esp_now_peer_info_t *peer = &slave; // pointer to slave data structure
+  memcpy(slave.peer_addr, peer_addr, 6); // copy mac address of the peer to the slave data structure
   
   slave.channel = chan; // pick a channel
   slave.encrypt = 0; // no encryption
-  // check if the peer exists
-  bool exists = esp_now_is_peer_exist(slave.peer_addr);
-  if (exists) {
-    // Slave already paired.
+  
+  bool exists = esp_now_is_peer_exist(slave.peer_addr); // check if the peer exists
+  if (exists) { // Slave already paired.
     Serial.println("Already Paired");
     return true;
   }
-  else {
+  else { // Slave not paired, attempt pair
     esp_err_t addStatus = esp_now_add_peer(peer);
-    if (addStatus == ESP_OK) {
-      // Pair success
+    if (addStatus == ESP_OK) { // Pair success
       Serial.println("Pair success");
       return true;
     }
-    else 
-    {
+    else { // Pair failed
       Serial.println("Pair failed");
       return false;
     }
   }
 } 
 
-// callback when data is sent
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  Serial.print("Last Packet Send Status: ");
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) { // callback when data is sent
+  Serial.print("Last Packet Send Status: "); // prints the status of the sent data to the serial monitor
   Serial.print(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success to " : "Delivery Fail to ");
-  printMAC(mac_addr);
+  printMAC(mac_addr); // prints the mac address of the receiver to the serial monitor
   Serial.println();
 }
 
-void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) { 
-  Serial.print(len);
+void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) { // callback when data is received
+  // prints the length of received data and mac address of the sender to the serial monitor
+  Serial.print(len); 
   Serial.print(" bytes of data received from : ");
   printMAC(mac_addr);
   Serial.println();
-  StaticJsonDocument<1000> root;
-  String payload;
+
   uint8_t type = incomingData[0];       // first message byte is the type of message 
-  switch (type) {
+  switch (type) { // checks the type of message
   case DATA :                           // the message is data type
-    memcpy(&incomingReadings, incomingData, sizeof(incomingReadings));
-    // create a JSON document with received data and send it by event to the web page
-    root["id"] = incomingReadings.id;
-    root["temperature"] = incomingReadings.temp;
-    root["humidity"] = incomingReadings.hum;
-    serializeJson(root, payload);
-    Serial.print("event send :");
-    serializeJson(root, Serial);
-    // REPLACE WITH MQTT/UBIDOTS:
-    //events.send(payload.c_str(), "new_readings", millis());
+    memcpy(&incomingReadings, incomingData, sizeof(incomingReadings)); // copy the received data to the incomingReadings object
     Outside.temp = incomingReadings.temp;
     Outside.hum = incomingReadings.hum;
     Serial.println();
@@ -184,21 +169,21 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
   
   case PAIRING:                            // the message is a pairing request 
     memcpy(&pairingData, incomingData, sizeof(pairingData));
-    Serial.println(pairingData.msgType);
-    Serial.println(pairingData.id);
-    Serial.print("Pairing request from: ");
+    Serial.println(pairingData.msgType); // prints the message type to the serial monitor
+    Serial.println(pairingData.id); // prints the id to the serial monitor
+    Serial.print("Pairing request from: "); // prints the mac address of the sender to the serial monitor
     printMAC(mac_addr);
-    Serial.println();
-    Serial.println(pairingData.channel);
+    Serial.println(); 
+    Serial.println(pairingData.channel); // prints the channel of the sender to the serial monitor
     if (pairingData.id > 0) {     // do not replay to server itself
       if (pairingData.msgType == PAIRING) { 
         pairingData.id = 0;       // 0 is server
         // Server is in AP_STA mode: peers need to send data to server soft AP MAC address 
-        WiFi.softAPmacAddress(pairingData.macAddr);   
-        pairingData.channel = chan;
-        Serial.println("send response");
-        esp_err_t result = esp_now_send(mac_addr, (uint8_t *) &pairingData, sizeof(pairingData));
-        addPeer(mac_addr);
+        WiFi.softAPmacAddress(pairingData.macAddr); // get server soft AP MAC address 
+        pairingData.channel = chan; // get server soft AP channel
+        Serial.println("send response"); // prints "send response" to the serial monitor
+        esp_err_t result = esp_now_send(mac_addr, (uint8_t *) &pairingData, sizeof(pairingData)); // sends the pairing data to the peer
+        addPeer(mac_addr); // adds the peer to esp-now peer list
       }  
     }  
     break; 
@@ -206,43 +191,41 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
 }
 
 void initESP_NOW(){  // Initialize ESP-NOW
-
-    if (esp_now_init() != ESP_OK) {
+    if (esp_now_init() != ESP_OK) { // if not initialized
       Serial.println("Error initializing ESP-NOW");
       return;
     }
-    else {
+    else { // if initialized
       Serial.println("ESP-NOW Initialized");
     }
-    esp_now_register_send_cb(OnDataSent);
-    esp_now_register_recv_cb(OnDataRecv);
+    esp_now_register_send_cb(OnDataSent); // register callback function for when data is sent
+    esp_now_register_recv_cb(OnDataRecv); // register callback function for when data is received
 } 
 
-void setupWifi() { //Configures the wifi
+void setupWifi() { // configures the wifi
+  // print MAC address of hub:
   Serial.println();
   Serial.print("Server MAC Address:  ");
-  Serial.println(WiFi.macAddress());
+  Serial.println(WiFi.macAddress()); 
 
-  // Set the device as a Station and Soft Access Point simultaneously
-  WiFi.mode(WIFI_AP_STA);
-  // Set device as a Wi-Fi Station
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) {
+  WiFi.mode(WIFI_AP_STA); // Set the device as a Station and Soft Access Point simultaneously
+  WiFi.begin(WIFI_SSID, WIFI_PASS); // connects to the router
+  while (WiFi.status() != WL_CONNECTED) { // waits for the connection to be established
     delay(1000);
     Serial.println("Setting as a Wi-Fi Station..");
   }
-
-  Serial.print("Server SOFT AP MAC Address:  ");
+  Serial.print("Server SOFT AP MAC Address:  "); // prints the MAC address of the soft access point to the serial monitor
   Serial.println(WiFi.softAPmacAddress());
+  chan = WiFi.channel(); // gets the channel of the router
 
-  chan = WiFi.channel();
-  Serial.print("Station IP Address: ");
+  // print the IP address and channel of WiFi router
+  Serial.print("Station IP Address: "); 
   Serial.println(WiFi.localIP());
   Serial.print("Wi-Fi Channel: ");
   Serial.println(WiFi.channel());
 }
 
-
+///////////////////////////////////////////////////////////////////////////
 
 void callback(char *topic, byte *payload, unsigned int length)
 { // Callback for subscribing to the Ubidots MQTT broker, this method will be called everytime the device receives data from Ubidots.
@@ -261,10 +244,7 @@ void callback(char *topic, byte *payload, unsigned int length)
   } else if (strcmp(topic, "/v2.0/devices/sensorhub/vent/lv") == 0){
   hubD.setVent = message.toInt();
   }
-
 }
-
-///////////////////////////////////////////////////////////////////////////
 
 void screenPrint(String text, String text2) { //Prints the given text to the screen
   if (text == ""){ //If no text is given, use the last text
