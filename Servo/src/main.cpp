@@ -1,3 +1,10 @@
+/////////////////////////////////////////////
+/* This code receives a set value for a    */ 
+/* servo through ESP-NOW, and sets the     */
+/* position of the servo. It can also      */
+/* be adapted for other types of actuators */
+/////////////////////////////////////////////
+
 // libraries to include
 #include <Arduino.h>
 #include <ESP32Servo.h>

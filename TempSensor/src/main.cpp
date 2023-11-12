@@ -1,3 +1,9 @@
+///////////////////////////////////////////////////
+/* This code controls a temperature sensor       */
+/* which sends humidity and temperature data     */
+/* to a central hub via ESP-NOW.                 */
+///////////////////////////////////////////////////
+
 // libraries to include
 #include <Arduino.h>
 #include <Wire.h>
@@ -11,7 +17,7 @@
 #define MAX_CHANNEL 13 // maximum WiFi channel number
 
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for micro seconds to seconds 
-#define TIME_TO_SLEEP  60       // Time ESP32 will go to sleep (in seconds) 
+#define TIME_TO_SLEEP  10       // Time ESP32 will go to sleep (in seconds) 
 
 RTC_DATA_ATTR int bootCount = 0; // counter for number of reboots
 
@@ -167,7 +173,11 @@ void setup() {
     while (1);
   }
   currentTemp = bme.readTemperature(); 
-
+  if (abs(currentTemp - previousTemp) < 1) { // if temperature changes less than 1 degree since last reading
+    Serial.printf("powered on for %lu ms\n", millis() - start); // print awake time
+    esp_deep_sleep_start(); // start deep sleep
+  }
+  previousTemp = currentTemp; // set previous temperature to current temperature
   // Print MAC address to serial
   Serial.print("Client Board MAC Address:  "); 
   Serial.println(WiFi.macAddress());
@@ -180,20 +190,15 @@ void setup() {
 }
 
 void loop() { 
-  if (abs(currentTemp - previousTemp) >= 0.5) { // if temperature changes more than 0.5 degrees since last reading
-    if (autoPairing() == PAIR_PAIRED) { // start autopairing and check if paired
-      previousTemp = currentTemp; 
-      // set values to send
-      outData.msgType = DATA;
-      outData.id = BOARD_ID;
-      outData.temp = currentTemp;
-      outData.hum = bme.readHumidity();
+  if (autoPairing() == PAIR_PAIRED) { // start autopairing and check if paired
+    // set values to send
+    outData.msgType = DATA;
+    outData.id = BOARD_ID;
+    outData.temp = currentTemp;
+    outData.hum = bme.readHumidity();
 
-      esp_err_t result = esp_now_send(serverAddress, (uint8_t *) &outData, sizeof(outData)); // send values to server
-    }
-  }
-  else { // if temperature hasn't changed, go to sleep
-    Serial.printf("powered on for %lu ms\n", millis() - start); // print awake time
+    esp_err_t result = esp_now_send(serverAddress, (uint8_t *) &outData, sizeof(outData)); // send values to server
+    Serial.printf("Powered on for %lu ms\n", millis() - start); // print awake time
     esp_deep_sleep_start(); // start deep sleep
   }
 }
