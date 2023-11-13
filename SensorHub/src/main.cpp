@@ -1,266 +1,235 @@
 ///////////////////////////////////////////////////////////////////////////
+// Libraries needed:
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
-
-// Replace with your network credentials (STATION)
-/*const char* ssid = "Midjoskyen";
-const char* password = "ArneErBest";*/
-
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-
 #include <SimpleRotary.h>
-
 #include "UbidotsEsp32Mqtt.h"
-
 #include <SPI.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 
-#define SEALEVELPRESSURE_HPA (1013.25)
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define SEALEVELPRESSURE_HPA (1013.25) //define the sea level pressure
 
-///////////////////////////////////////////////////////////////////////////
-
-const char *UBIDOTS_TOKEN = "BBFF-0aMsYRBJ5JgWojU2IUuwTByFEYqDqi";  // Put here your Ubidots TOKEN
-const char *WIFI_SSID = "8 piece";      // Put here your Wi-Fi SSID
-const char *WIFI_PASS = "aihr8372";      // Put here your Wi-Fi password
+const char *UBIDOTS_TOKEN = "";  // Put here your Ubidots TOKEN
+const char *WIFI_SSID = "";      // Put here your Wi-Fi SSID
+const char *WIFI_PASS = "";      // Put here your Wi-Fi password
 const char *DEVICE_LABEL = "SensorHUB";   // Put here your Device label to which data  will be published
 const char *TEMP_LABEL = "temp"; // Put here your Variable label to which data  will be published
 const char *VENT_LABEL = "vent"; // Put here your Variable label to which data  will be published
 
-const int PUBLISH_FREQUENCY = 10000; // Update rate in milliseconds
+///////////////////////////////////////////////////////////////////////////
 
-unsigned long timer = 0;
+Ubidots ubidots(UBIDOTS_TOKEN); //defines ubidots as a variable
 
-Ubidots ubidots(UBIDOTS_TOKEN);
+SimpleRotary rotary(4,2,5); // Pin A, Pin B, Button Pin
 
-//TaskHandle_t Loop2;
+Adafruit_BME280 bme; // I2C for the temp sensor
 
-// Pin A, Pin B, Button Pin
-SimpleRotary rotary(4,2,5);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1); // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 
-Adafruit_BME280 bme; // I2C
-//Adafruit_BME280 bme(BME_CS); // hardware SPI
-//Adafruit_BME280 bme(BME_CS, BME_MOSI, BME_MISO, BME_SCK); // software SPI
 
-unsigned long delayTime;
+///////////////////////////////////////////////////////////////////////////
 
-// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+esp_now_peer_info_t slave; //defines the slave object for the esp-now
+int chan; // int-chan uWu
 
-int temp = 20;
-int vent = 50;
-float roomtemp = 0;
-float servoTemp = 0;
-float servoHum = 0;
-float outsideTemp = 0;
-float outsideHum = 0;
-int lastVent = 0;
+enum MessageType {PAIRING, DATA,}; // enum for the different message types
+MessageType messageType; // defines enum variable for the message type
 
-unsigned long screenPrinted = 0;
+typedef struct struct_message_temp { //defines the variables received from the sensor module
+  uint8_t msgType; // can be pairing or data
+  uint8_t id; // board id
+  float temp; // temperature
+  float hum; // humidity
+} struct_message; 
 
-enum screenModes{
-  Temp,
-  Vent,
-  sleepMode
-  }; screenModes screenMode = Temp;
-
-String screenLine1 = "Temp: " + String(temp) + "C";
-String screenLine2 = "Roomtemp: " + String(roomtemp) + "C";
-String lastScreenLine1 = "";
-String lastScreenLine2 = "";
-
-  struct ubidotsData
-  {
-    float temp = temp;
-    float vent = vent;
-    float roomtemp = roomtemp;
-    float servoTemp = servoTemp;
-    float servoHum = servoHum;
-    float outsideTemp = outsideTemp;
-    float outsideHum = outsideHum;
-  }; ubidotsData lastData;
-
-esp_now_peer_info_t slave;
-int chan; 
-
-enum MessageType {PAIRING, DATA,};
-MessageType messageType;
-
-int counter = 0;
-
-typedef struct struct_message_temp {
-  uint8_t msgType;
-  uint8_t id;
-  float temp;
-  float hum;
-} struct_message;
-
-typedef struct struct_message_actuator {
-  uint8_t msgType;
-  uint8_t id;
-  float percentage;
+typedef struct struct_message_actuator { //defines the variables received from the vent module
+  uint8_t msgType; // can be pairing or data
+  uint8_t id; // board id
+  float percentage; // actuator percentage
 } struct_message_actuator;
 
 typedef struct struct_pairing {       // new structure for pairing
-    uint8_t msgType;
-    uint8_t id;
-    uint8_t macAddr[6];
-    uint8_t channel;
+    uint8_t msgType; // can be pairing or data
+    uint8_t id; // board id
+    uint8_t macAddr[6]; // mac address of the sender
+    uint8_t channel; // channel of the sender
 } struct_pairing;
 
-struct_message_temp incomingReadings;
-struct_message_actuator outgoingSetpoints;
-struct_pairing pairingData;
+struct_message_temp incomingReadings; // object for received data from the sensor module
+struct_message_actuator outgoingSetpoints; // object for data to be sent to the vent module
+struct_pairing pairingData; // object for pairing data
 
-// ---------------------------- esp_ now -------------------------
-void printMAC(const uint8_t * mac_addr){
-  char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
+
+///////////////////////////////////////////////////////////////////////////
+
+enum screenModes{ // enum for the different screen modes
+  Temp,
+  Vent,
+  }; screenModes screenMode = Temp;
+
+const int PUBLISH_FREQUENCY = 10000; // Update rate in milliseconds, the data will be sent every 10 seconds
+
+unsigned long timer = 0; // Timer to count the time between publishing data
+
+struct hubData{ // struct for the adjustable values of the hub
+  int setTemp = 20;
+  int setVent = 50;
+  int lastVent = 0;
+} hubD; 
+hubData lastHubData;
+
+struct sensorData{ // struct for the sensor data
+  int id;
+  float temp;
+  float hum;
+};
+sensorData Hub{0, 0, 0};
+sensorData Servo{1, 0, 0};
+sensorData Outside{2, 0, 0};
+sensorData lastHub{0, 0, 0};
+sensorData lastServo{1, 0, 0};
+sensorData lastOutside{2, 0, 0};
+
+unsigned long screenPrinted = 0; //used to check if the screen has been updated recently
+
+struct ScreenData{ //struct for the info that is displayed on the screen
+  String line1;
+  String line2;
+};
+ScreenData screenData{"Temp: " + String(hubD.setTemp) + "C", "Roomtemp: " + String(Hub.temp) + "C"};
+ScreenData lastScreenData{"", ""};
+
+
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
+
+void printMAC(const uint8_t * mac_addr){ //prints the mac address to the serial monitor
+  char macStr[18]; // converts the mac address to a c-string
+  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x", // prints the mac address to macStr
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-  Serial.print(macStr);
+  Serial.print(macStr); // prints the mac address to the serial monitor
 }
 
 bool addPeer(const uint8_t *peer_addr) {      // add pairing
-  memset(&slave, 0, sizeof(slave));
-  const esp_now_peer_info_t *peer = &slave;
-  memcpy(slave.peer_addr, peer_addr, 6);
+  memset(&slave, 0, sizeof(slave)); // clear slave data structure
+  const esp_now_peer_info_t *peer = &slave; // pointer to slave data structure
+  memcpy(slave.peer_addr, peer_addr, 6); // copy mac address of the peer to the slave data structure
   
   slave.channel = chan; // pick a channel
   slave.encrypt = 0; // no encryption
-  // check if the peer exists
-  bool exists = esp_now_is_peer_exist(slave.peer_addr);
-  if (exists) {
-    // Slave already paired.
+  
+  bool exists = esp_now_is_peer_exist(slave.peer_addr); // check if the peer exists
+  if (exists) { // Slave already paired.
     Serial.println("Already Paired");
     return true;
   }
-  else {
+  else { // Slave not paired, attempt pair
     esp_err_t addStatus = esp_now_add_peer(peer);
-    if (addStatus == ESP_OK) {
-      // Pair success
+    if (addStatus == ESP_OK) { // Pair success
       Serial.println("Pair success");
       return true;
     }
-    else 
-    {
+    else { // Pair failed
       Serial.println("Pair failed");
       return false;
     }
   }
 } 
 
-// callback when data is sent
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  Serial.print("Last Packet Send Status: ");
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) { // callback when data is sent
+  Serial.print("Last Packet Send Status: "); // prints the status of the sent data to the serial monitor
   Serial.print(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success to " : "Delivery Fail to ");
-  printMAC(mac_addr);
+  printMAC(mac_addr); // prints the mac address of the receiver to the serial monitor
   Serial.println();
 }
 
-void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) { 
-  Serial.print(len);
+void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) { // callback when data is received
+  // prints the length of received data and mac address of the sender to the serial monitor
+  Serial.print(len); 
   Serial.print(" bytes of data received from : ");
   printMAC(mac_addr);
   Serial.println();
-  StaticJsonDocument<1000> root;
-  String payload;
+
   uint8_t type = incomingData[0];       // first message byte is the type of message 
-  switch (type) {
+  switch (type) { // checks the type of message
   case DATA :                           // the message is data type
-    memcpy(&incomingReadings, incomingData, sizeof(incomingReadings));
-    // create a JSON document with received data and send it by event to the web page
-    root["id"] = incomingReadings.id;
-    root["temperature"] = incomingReadings.temp;
-    root["humidity"] = incomingReadings.hum;
-    serializeJson(root, payload);
-    Serial.print("event send :");
-    serializeJson(root, Serial);
-    // REPLACE WITH MQTT/UBIDOTS:
-    //events.send(payload.c_str(), "new_readings", millis());
-    if (incomingReadings.id = 1) {
-      servoTemp = incomingReadings.temp;
-      servoHum = incomingReadings.hum;
-    } else if (incomingReadings.id = 2){
-      outsideTemp = incomingReadings.temp;
-      outsideHum = incomingReadings.hum;
-    }
+    memcpy(&incomingReadings, incomingData, sizeof(incomingReadings)); // copy the received data to the incomingReadings object
+    Outside.temp = incomingReadings.temp;
+    Outside.hum = incomingReadings.hum;
     Serial.println();
     break;
   
   case PAIRING:                            // the message is a pairing request 
     memcpy(&pairingData, incomingData, sizeof(pairingData));
-    Serial.println(pairingData.msgType);
-    Serial.println(pairingData.id);
-    Serial.print("Pairing request from: ");
+    Serial.println(pairingData.msgType); // prints the message type to the serial monitor
+    Serial.println(pairingData.id); // prints the id to the serial monitor
+    Serial.print("Pairing request from: "); // prints the mac address of the sender to the serial monitor
     printMAC(mac_addr);
-    Serial.println();
-    Serial.println(pairingData.channel);
+    Serial.println(); 
+    Serial.println(pairingData.channel); // prints the channel of the sender to the serial monitor
     if (pairingData.id > 0) {     // do not replay to server itself
       if (pairingData.msgType == PAIRING) { 
         pairingData.id = 0;       // 0 is server
         // Server is in AP_STA mode: peers need to send data to server soft AP MAC address 
-        WiFi.softAPmacAddress(pairingData.macAddr);   
-        pairingData.channel = chan;
-        Serial.println("send response");
-        esp_err_t result = esp_now_send(mac_addr, (uint8_t *) &pairingData, sizeof(pairingData));
-        addPeer(mac_addr);
+        WiFi.softAPmacAddress(pairingData.macAddr); // get server soft AP MAC address 
+        pairingData.channel = chan; // get server soft AP channel
+        Serial.println("send response"); // prints "send response" to the serial monitor
+        esp_err_t result = esp_now_send(mac_addr, (uint8_t *) &pairingData, sizeof(pairingData)); // sends the pairing data to the peer
+        addPeer(mac_addr); // adds the peer to esp-now peer list
       }  
     }  
     break; 
   }
 }
 
-void initESP_NOW(){
-    // Init ESP-NOW
-    if (esp_now_init() != ESP_OK) {
+void initESP_NOW(){  // Initialize ESP-NOW
+    if (esp_now_init() != ESP_OK) { // if not initialized
       Serial.println("Error initializing ESP-NOW");
       return;
     }
-    else {
+    else { // if initialized
       Serial.println("ESP-NOW Initialized");
     }
-    esp_now_register_send_cb(OnDataSent);
-    esp_now_register_recv_cb(OnDataRecv);
+    esp_now_register_send_cb(OnDataSent); // register callback function for when data is sent
+    esp_now_register_recv_cb(OnDataRecv); // register callback function for when data is received
 } 
 
-void setupWifi() {
+void setupWifi() { // configures the wifi
+  // print MAC address of hub:
   Serial.println();
   Serial.print("Server MAC Address:  ");
-  Serial.println(WiFi.macAddress());
+  Serial.println(WiFi.macAddress()); 
 
-  // Set the device as a Station and Soft Access Point simultaneously
-  WiFi.mode(WIFI_AP_STA);
-  // Set device as a Wi-Fi Station
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) {
+  WiFi.mode(WIFI_AP_STA); // Set the device as a Station and Soft Access Point simultaneously
+  WiFi.begin(WIFI_SSID, WIFI_PASS); // connects to the router
+  while (WiFi.status() != WL_CONNECTED) { // waits for the connection to be established
     delay(1000);
     Serial.println("Setting as a Wi-Fi Station..");
   }
-
-  Serial.print("Server SOFT AP MAC Address:  ");
+  Serial.print("Server SOFT AP MAC Address:  "); // prints the MAC address of the soft access point to the serial monitor
   Serial.println(WiFi.softAPmacAddress());
+  chan = WiFi.channel(); // gets the channel of the router
 
-  chan = WiFi.channel();
-  Serial.print("Station IP Address: ");
+  // print the IP address and channel of WiFi router
+  Serial.print("Station IP Address: "); 
   Serial.println(WiFi.localIP());
   Serial.print("Wi-Fi Channel: ");
   Serial.println(WiFi.channel());
 }
 
-
-
-///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
 
 void callback(char *topic, byte *payload, unsigned int length)
-{
+{ // Callback for subscribing to the Ubidots MQTT broker, this method will be called everytime the device receives data from Ubidots.
+// This function updated the values of the variables in the hubData struct
   String message = "";
   Serial.print("UBI: [");
   Serial.print(topic);
@@ -271,25 +240,24 @@ void callback(char *topic, byte *payload, unsigned int length)
   }
   Serial.println(message);
   if (strcmp(topic, "/v2.0/devices/sensorhub/temp/lv") == 0){
-  temp = message.toInt();
+  hubD.setTemp = message.toInt();
   } else if (strcmp(topic, "/v2.0/devices/sensorhub/vent/lv") == 0){
-  vent = message.toInt();
+  hubD.setVent = message.toInt();
   }
-
 }
 
-void screenPrint(String text, String text2) { //Increase the text size
+void screenPrint(String text, String text2) { //Prints the given text to the screen
   if (text == ""){ //If no text is given, use the last text
-    text = screenLine1;
+    text = screenData.line1;
   } else {
-    screenLine1 = text;
+    screenData.line1 = text;
   }
   if (text2 == ""){ //If no text is given, use the last text
-    text2 = screenLine2;
+    text2 = screenData.line2;
   } else {
-    screenLine2 = text2;
+    screenData.line2 = text2;
   }
-  if (screenLine1 != lastScreenLine1 || screenLine2 != lastScreenLine2){
+  if (screenData.line1 != lastScreenData.line1 || screenData.line2 != lastScreenData.line2){ //if the text has changed, print it to the screen
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(WHITE);
@@ -298,34 +266,33 @@ void screenPrint(String text, String text2) { //Increase the text size
     display.setCursor(0, 30);
     display.println(text2);
     display.display();
-    lastScreenLine1 = screenLine1;
-    lastScreenLine2 = screenLine2;
+    lastScreenData = screenData;
   }
 }
 
-void changeMode(){
+void changeMode(){ //Changes the screen mode between Temp and Vent
   if (screenMode == Temp){
     screenMode = Vent;
-    screenLine1 = "Vent: " + String(vent) + "%";
+    screenData.line1 = "Vent: " + String(hubD.setVent) + "%";
   } else if (screenMode == Vent){
     screenMode = Temp;
-    screenLine1 = "Temp: " + String(temp) + "C";
+    screenData.line1 = "Temp: " + String(hubD.setTemp) + "C";
   }
 }
 
-void screen(){
+void screen(){ //Prints the screen
 
   if (screenMode == Temp){
-    screenPrint("Temp: "+String(temp)+"C", screenLine2);
+    screenPrint("Temp: "+String(hubD.setTemp)+"C", screenData.line2);
   } else if (screenMode == Vent){
-    screenPrint("Vent: "+String(vent)+"%", screenLine2);
+    screenPrint("Vent: "+String(hubD.setVent)+"%", screenData.line2);
   }
 }
 
-void led(){
+void led(){ //Controls the led in the rotary encoder
   
   if (screenMode == Vent){
-    int l = map(vent, 0, 100, 0, 2);
+    int l = map(hubD.setVent, 0, 100, 0, 2);
     if (l == 0){
       digitalWrite(18, LOW);
       digitalWrite(19, HIGH);
@@ -338,7 +305,7 @@ void led(){
     }
   }
   if (screenMode == Temp){
-    int l = map(temp, 5, 40, 0, 2);
+    int l = map(hubD.setTemp, 5, 40, 0, 2);
     if (l == 0){
       digitalWrite(18, HIGH);
       digitalWrite(19, LOW);
@@ -352,22 +319,22 @@ void led(){
   }
 }
 
-float readTemp(){
-  roomtemp = bme.readTemperature();
-  screenLine2 = "Roomtemp: " + String(roomtemp) + "C";
-  return roomtemp;
+float readTemp(){ //reads the temperature from the sensor and prints it to the screen
+  Hub.temp = bme.readTemperature();
+  screenData.line2 = "Roomtemp: " + String(Hub.temp) + "C";
+  return Hub.temp;
 }
 
-void knob(){
+void knob(){ //checks the rotary encoder for input and changes the setpoints accordingly
 
   byte rotation = rotary.rotate(); // 0 = not turning, 1 = CW, 2 = CCW
   byte push = rotary.push(); // 0 = not pushed, 1 = pushed
 
   if (screenMode == Temp){
     if (rotation == 1){
-      temp++;
+      hubD.setTemp++;
     } else if (rotation == 2){
-      temp--;
+      hubD.setTemp--;
     }
     if (push == 1){
       changeMode();
@@ -377,47 +344,36 @@ void knob(){
   
   else if (screenMode == Vent){
     if (rotation == 1){
-      vent++;
+      hubD.setVent++;
     } else if (rotation == 2){
-      vent--;
+      hubD.setVent--;
     }
     if (push == 1){
       changeMode();
     }
   }
 
-  temp = constrain(temp, 5, 40);
-  vent = constrain(vent, 0, 100);
+  hubD.setTemp = constrain(hubD.setTemp, 5, 40);
+  hubD.setVent = constrain(hubD.setVent, 0, 100);
 
   screen();
 }
 
-/*void loop2(void *pvParameters)
-{
-  
-  
 
-
-  for (;;)
-  {
-
-
-    //delay(PUBLISH_FREQUENCY);
-    //Try removing the publush frequency delay and see if it works / add the publish_frequency delay to the ubidots loop
-  }
-}*/
-
-
-void tempLogic(){
+void tempLogic(){ //Calculates the setpoint for the vent module based on the temperature difference between the room and the outside
 
   if (screenMode != Vent){
-    if (outsideTemp < roomtemp && temp < roomtemp){
-    vent = map(roomtemp-outsideTemp, 5, 35, 0, 100);
-    } else if (temp >= roomtemp){
-      vent = 0;
+    int InnOut =  Hub.temp - Outside.temp;
+    int WantOut = hubD.setTemp - Outside.temp;
+    int delta =  InnOut - WantOut;
+    if (delta <= 0){
+      hubD.setVent = 0;
+    } else if (delta <= 10 && delta > 0){
+      hubD.setVent = map(delta, 0, 10, 0, 100);
+    } else if (delta > 10){
+      hubD.setVent = 100;
     }
   }
-  
 
 }
 
@@ -432,32 +388,17 @@ void setup() {
   WiFi.mode(WIFI_AP_STA);
   setupWifi();
   initESP_NOW();
-  
-  // put your setup code here, to run once
 
-  ubidots.setDebug(true);  // uncomment this to make debug messages available
-  screenLine2 = "Connecting to wifi";
+  //ubidots.setDebug(true);  // uncomment this to make debug messages available
+  screenData.line2 = "Connecting to wifi";
   chan = WiFi.channel();
   ubidots.connect();
   ubidots.setCallback(callback);
   ubidots.setup();
-  //ubidots.reconnect();
   ubidots.subscribeLastValue(DEVICE_LABEL, TEMP_LABEL);
   ubidots.subscribeLastValue(DEVICE_LABEL, VENT_LABEL);
 
-
-
   timer = millis();
-
-  /*xTaskCreatePinnedToCore(
-                    loop2,   " Task function. "
-                    "Loop 2",     " name of task. "
-                    4096,       " Stack size of task "
-                    NULL,        " parameter of the task "
-                    tskIDLE_PRIORITY,           " priority of the task "
-                    &Loop2,      " Task handle to keep track of created task "
-                    0);          " pin task to core 0 "
-  */  
 
   pinMode(18, OUTPUT);
   pinMode(19, OUTPUT);
@@ -466,7 +407,7 @@ void setup() {
 
   unsigned status;
   status = bme.begin(0x76); // I2C address. I2C scanner found 0x76
-  if (!status) {
+  if (!status) { //checks if the temp sensor is connected
         Serial.println("Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
         Serial.print("SensorID was: 0x"); Serial.println(bme.sensorID(),16);
         Serial.print("        ID of 0xFF probably means a bad address, a BMP 180 or BMP 085\n");
@@ -480,91 +421,98 @@ void setup() {
     Serial.println(F("SSD1306 allocation failed"));
     for(;;);
   }
-  delay(2000);
+  delay(2000); //delay for the screen to initialize
   display.clearDisplay();
 
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0, 10);
-  // Display static text
+  // Display static text for startup
   display.println("Hello, world!");
   display.display(); 
 }
 
 void loop() {  
 
-  // Feels unnecessary
-  /* 
-  static unsigned long lastEventTime = millis();
-  static const unsigned long EVENT_INTERVAL_MS = 5000;
-  if ((millis() - lastEventTime) > EVENT_INTERVAL_MS) {
-    events.send("ping",NULL,millis());
-    lastEventTime = millis();
-    readDataToSend();
-    esp_now_send(NULL, (uint8_t *) &outgoingSetpoints, sizeof(outgoingSetpoints));
-  }
- */
+  knob(); //checks the rotary encoder for input
 
+  led(); //updates the led
 
-  knob();
+  tempLogic(); //checks the temperature difference between the room and the outside and sets the vent setpoint accordingly
 
-  led();
-
-  tempLogic();
-
-  if (millis() - screenPrinted > 5000){
+  if (millis() - screenPrinted > 5000){ //prints the screen every 5 seconds (is overrided by other screenPrints)
     readTemp();
     screenPrinted = millis();
   }
 
-  if (lastVent != vent){
+  if (hubD.lastVent != hubD.setVent){ //sends the vent setpoint to the vent module
     outgoingSetpoints.msgType = DATA;
     outgoingSetpoints.id = 0;
-    outgoingSetpoints.percentage = vent;
+    outgoingSetpoints.percentage = hubD.setVent;
     esp_err_t result = esp_now_send(NULL, (uint8_t *) &outgoingSetpoints, sizeof(outgoingSetpoints)); // NULL means send to all peers
-    lastVent = vent;
+    hubD.lastVent = hubD.setVent;
   }
   
-  if (!ubidots.connected()){
-      screenLine2 = "Reconnecting to wifi";
+  if (!ubidots.connected()){ //reconnects to ubidots if the connection is lost
+      screenData.line2 = "Reconnecting to wifi";
       ubidots.connect();
-      //ubidots.reconnect();
       ubidots.subscribeLastValue(DEVICE_LABEL, TEMP_LABEL);
       ubidots.subscribeLastValue(DEVICE_LABEL, VENT_LABEL);
     }
 
 
-    if (millis() - timer > PUBLISH_FREQUENCY){
-      if (lastData.temp != temp){
-        ubidots.add("Temp", temp);
-        lastData.temp = temp;
+    if (millis() - timer > PUBLISH_FREQUENCY){ //publishes the data to ubidots every 10 seconds
+      if (int(lastHubData.setTemp) != int(hubD.setTemp)){
+        ubidots.add("Temp", hubD.setTemp);
+        Serial.println("temp"+String(hubD.setTemp));
+        Serial.println("lasttemp"+String(lastHubData.setTemp));
+        lastHubData.setTemp = hubD.setTemp;
+        ubidots.publish(DEVICE_LABEL);
       }
-      if (lastData.vent != vent){
-        ubidots.add("Vent", vent);
-        lastData.vent = vent;
+      if (lastHubData.setVent != hubD.setVent){
+        ubidots.add("Vent", hubD.setVent);
+        Serial.println("vent"+String(hubD.setVent));
+        Serial.println("lastvent"+String(lastHubData.setVent));
+        lastHubData.setVent = hubD.setVent;
+        ubidots.publish(DEVICE_LABEL);
       }
-      if (lastData.roomtemp != roomtemp){
-        ubidots.add("Roomtemp", roomtemp);
-        lastData.roomtemp = roomtemp;
+      if (int(lastHub.temp) != int(Hub.temp)){
+        ubidots.add("Roomtemp", Hub.temp);
+        Serial.println("roomtemp"+String(Hub.temp));
+        Serial.println("lastroomtemp"+String(lastHub.temp));
+        lastHub.temp = Hub.temp;
+        ubidots.publish(DEVICE_LABEL);
       }
-      if (lastData.servoTemp != servoTemp){
-        ubidots.add("VentTemp", servoTemp);
-        lastData.servoTemp = servoTemp;
+      if (int(lastServo.temp) != int(Servo.temp)){
+        ubidots.add("VentTemp", Servo.temp);
+        Serial.println("venttemp"+String(Servo.temp));
+        Serial.println("lastventtemp"+String(lastServo.temp));
+        lastServo.temp = Servo.temp;
+        ubidots.publish(DEVICE_LABEL);
       }
-      if (lastData.servoHum != servoHum){
-        ubidots.add("VentHum", servoHum);
-        lastData.servoHum = servoHum;
+      if (int(lastServo.hum) != int(Servo.hum)){
+        ubidots.add("VentHum", Servo.hum);
+        Serial.println("venthum"+String(Servo.hum));
+        Serial.println("lastventhum"+String(lastServo.hum));
+        lastServo.hum = Servo.hum;
+        ubidots.publish(DEVICE_LABEL);
       }
-      if (lastData.outsideTemp != outsideTemp){
-        ubidots.add("OutsideTemp", outsideTemp);
-        lastData.outsideTemp = outsideTemp;
+      if (int(lastOutside.temp) != int(Outside.temp)){
+        ubidots.add("OutsideTemp", Outside.temp);
+        Serial.println("outsidetemp"+String(Outside.temp));
+        Serial.println("lastoutsidetemp"+String(lastOutside.temp));
+        lastOutside.temp  = Outside.temp;
+        ubidots.publish(DEVICE_LABEL);
       }
-      if (lastData.outsideHum != outsideHum){
-        ubidots.add("OutsideHum", outsideHum);
-        lastData.outsideHum = outsideHum;
+      if (int(lastOutside.hum)  != int(Outside.hum)){
+        ubidots.add("OutsideHum", Outside.hum);
+        Serial.println("outsidehum"+String(Outside.hum));
+        Serial.println("lastoutsidehum"+String(lastOutside.hum));
+        lastOutside.hum = Outside.hum;
+        ubidots.publish(DEVICE_LABEL);
       }
 
-      ubidots.publish(DEVICE_LABEL);
+      
 
       timer = millis();
     }
