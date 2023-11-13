@@ -11,9 +11,9 @@ After the timer it will send what it detected (either "1" for movement or "0" fo
 #include "UbidotsEsp32Mqtt.h"
 
 // Network variables
-const char *UBIDOTS_TOKEN   = "BBFF-0aMsYRBJ5JgWojU2IUuwTByFEYqDqi";  // Put here your Ubidots TOKEN
-const char *WIFI_SSID       = "foldy";                                // Put here your Wi-Fi SSID
-const char *WIFI_PASS       = "aihr8372";                             // Put here your Wi-Fi password
+const char *UBIDOTS_TOKEN   = "";  // Put here your Ubidots TOKEN
+const char *WIFI_SSID       = "";                                     // Put here your Wi-Fi SSID
+const char *WIFI_PASS       = "";                                     // Put here your Wi-Fi password
 const char *DEVICE_LABEL    = "DoorNode";                             // Put here your Device label to which data  will be published
 const char *VARIABLE_LABEL  = "Motion";                               // Put here your Variable label to which data  will be published
 
@@ -179,4 +179,5 @@ void callback(char *topic, byte *payload, unsigned int length)
 void sendVariable(int variable){ // Send variable to ubidots client
   ubidots.add(VARIABLE_LABEL, variable); 
   ubidots.publish(DEVICE_LABEL);
+  Serial.println("Motion Sent");
 }
